@@ -5,7 +5,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.endpoints import api_router
 
-print("DATABASE_URL:", os.getenv("DATABASE_URL"))
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
