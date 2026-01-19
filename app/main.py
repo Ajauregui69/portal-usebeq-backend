@@ -82,3 +82,54 @@ def debug_db():
             return {"status": "connected", "test_query": "SELECT 1 OK"}
     except Exception as e:
         return {"status": "error", "error": str(e), "error_type": type(e).__name__}
+
+
+@app.post("/debug/register")
+def debug_register():
+    """
+    Debug endpoint to test registration.
+    Remove this in production after debugging!
+    """
+    from app.core.database import SessionLocal
+    from app.models.user import User, UserStatus
+    from app.core.security import get_password_hash
+    import secrets
+    import traceback
+
+    db = SessionLocal()
+    try:
+        # Check if test user exists
+        existing = db.query(User).filter(User.u_correo == "debug@test.com").first()
+        if existing:
+            db.delete(existing)
+            db.commit()
+
+        # Create test user
+        user = User(
+            u_correo="debug@test.com",
+            u_pass=get_password_hash("test123456"),
+            u_nombre="Debug",
+            u_appat="User",
+            u_apmat="Test",
+            estatus=UserStatus.PENDIENTE,
+            token_activacion=secrets.token_urlsafe(32)
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+        return {
+            "status": "success",
+            "user_id": user.u_id,
+            "email": user.u_correo,
+            "estatus": user.estatus.value if user.estatus else None
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "traceback": traceback.format_exc()
+        }
+    finally:
+        db.close()
