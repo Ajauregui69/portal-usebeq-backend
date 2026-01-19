@@ -17,7 +17,7 @@ class UserBase(BaseModel):
 
 # Properties to receive on user creation
 class UserCreate(UserBase):
-    u_pass: str = Field(..., min_length=6)
+    u_pass: Optional[str] = Field(None, min_length=6)
 
 
 # Properties to receive on user update
@@ -36,6 +36,7 @@ class UserInDB(UserBase):
     estatus: UserStatus
     fecha_registro: datetime
     fecha_validacion: Optional[datetime] = None
+    google_id: Optional[str] = None
 
     class Config:
         from_attributes = True

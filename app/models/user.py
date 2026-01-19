@@ -19,7 +19,7 @@ class User(Base):
 
     u_id = Column(Integer, primary_key=True, index=True)
     u_correo = Column(String(255), unique=True, index=True, nullable=False)
-    u_pass = Column(String(255), nullable=False)
+    u_pass = Column(String(255), nullable=True)  # Nullable for Google users
     estatus = Column(SQLEnum(UserStatus), default=UserStatus.PENDIENTE)
     u_nombre = Column(String(100), nullable=False)
     u_appat = Column(String(100), nullable=False)
@@ -30,6 +30,10 @@ class User(Base):
     fecha_registro = Column(DateTime, default=datetime.utcnow)
     fecha_validacion = Column(DateTime, nullable=True)
     token_activacion = Column(String(255), nullable=True)
+
+    # Google OAuth specific fields
+    google_id = Column(String(255), unique=True, nullable=True)
+    google_refresh_token = Column(String(512), nullable=True)
 
     # Relationships
     students = relationship("StudentParent", back_populates="user")

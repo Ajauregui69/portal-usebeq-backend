@@ -1,8 +1,13 @@
 from datetime import timedelta
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from google_auth_oauthlib.flow import Flow
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request as GoogleRequest
+from googleapiclient.discovery import build
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -12,6 +17,128 @@ from app.schemas.user import Token, UserCreate, User as UserSchema
 import secrets
 
 router = APIRouter()
+
+# --- Google OAuth Configuration ---
+GOOGLE_SCOPES = [
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
+    "https://www.googleapis.com/auth/gmail.send",
+    "openid"
+]
+
+def get_google_flow() -> Flow:
+    return Flow.from_client_config(
+        client_config={
+            "web": {
+                "client_id": settings.GOOGLE_CLIENT_ID,
+                "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            }
+        },
+        scopes=GOOGLE_SCOPES,
+        redirect_uri=settings.GOOGLE_REDIRECT_URI
+    )
+
+@router.get("/auth/google/login")
+async def google_login(request: Request):
+    """
+    Generate a redirect to Google's OAuth 2.0 consent screen.
+    """
+    flow = get_google_flow()
+    authorization_url, state = flow.authorization_url(
+        access_type="offline",
+        prompt="consent",
+        include_granted_scopes="true"
+    )
+    request.session["state"] = state
+    return RedirectResponse(authorization_url)
+
+
+@router.get("/auth/google/callback")
+async def google_callback(request: Request, db: Session = Depends(get_db)):
+    """
+    Process the OAuth 2.0 callback from Google.
+    """
+    from datetime import datetime
+    state = request.session.get("state")
+    if not state or state != request.query_params.get("state"):
+        raise HTTPException(status_code=401, detail="Invalid state parameter")
+
+    flow = get_google_flow()
+    try:
+        flow.fetch_token(
+            authorization_response=str(request.url),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error fetching token: {e}")
+
+    credentials = flow.credentials
+    
+    # Get user info from Google
+    try:
+        people_service = build("people", "v1", credentials=credentials)
+        profile = people_service.people().get(
+            resourceName="people/me",
+            personFields="names,emailAddresses,photos"
+        ).execute()
+
+        google_id = profile["resourceName"].split("/")[1]
+        email = profile["emailAddresses"][0]["value"]
+        first_name = profile["names"][0].get("givenName", "")
+        last_name = profile["names"][0].get("familyName", "")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not retrieve profile info: {e}")
+
+    # Check if user exists
+    user = db.query(User).filter(User.google_id == google_id).first()
+    if not user:
+        # If not, check if an account with that email exists
+        user = db.query(User).filter(User.u_correo == email).first()
+        if user:
+            # Link existing account
+            user.google_id = google_id
+            user.google_refresh_token = credentials.refresh_token
+            # If linking, user might need validation
+            if user.estatus == UserStatus.PENDIENTE:
+                user.estatus = UserStatus.VALIDADO
+                user.fecha_validacion = datetime.utcnow()
+            
+        else:
+            # Create new user
+            user = User(
+                u_correo=email,
+                u_nombre=first_name,
+                u_appat=last_name,
+                google_id=google_id,
+                google_refresh_token=credentials.refresh_token,
+                estatus=UserStatus.VALIDADO,
+                fecha_validacion=datetime.utcnow()
+            )
+            db.add(user)
+        
+        db.commit()
+        db.refresh(user)
+
+    else:
+        # Update refresh token if it has changed
+        if credentials.refresh_token:
+            user.google_refresh_token = credentials.refresh_token
+            db.commit()
+
+
+    # Create access token for our app
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        subject=user.u_id, expires_delta=access_token_expires
+    )
+
+    # Redirect to the frontend with the token
+    # TODO: Make the frontend URL configurable
+    frontend_url = f"http://localhost:3000/auth/callback?token={access_token}"
+    return RedirectResponse(url=frontend_url)
 
 
 @router.post("/register", response_model=UserSchema, status_code=status.HTTP_201_CREATED)
@@ -97,7 +224,13 @@ def login(
     # Normal user authentication
     user = db.query(User).filter(User.u_correo == form_data.username).first()
 
-    if not user or not verify_password(form_data.password, user.u_pass):
+    if user and user.google_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This account is registered with Google. Please use Google login."
+        )
+
+    if not user or not user.u_pass or not verify_password(form_data.password, user.u_pass):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"

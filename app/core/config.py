@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     USEBEQ_API_EMAIL: str = "portalpadres@usebeq.edu.mx"
     USEBEQ_API_PASSWORD: str = "pp4NUudeCQFo2"
 
+    # Google OAuth
+    GOOGLE_CLIENT_ID: str | None = None
+    GOOGLE_CLIENT_SECRET: str | None = None
+    GOOGLE_REDIRECT_URI: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

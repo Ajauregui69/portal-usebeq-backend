@@ -1,6 +1,7 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.core.config import settings
 from app.api.endpoints import api_router
@@ -11,6 +12,10 @@ app = FastAPI(
     version=settings.VERSION,
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
+
+# Add session middleware
+# The secret key is used to sign the session cookie
+app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
 # Set up CORS
 app.add_middleware(
