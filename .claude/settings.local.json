@@ -4,7 +4,8 @@
       "WebFetch(domain:portal-usebeq-backend-app-150126.azurewebsites.net)",
       "Bash(curl:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ]
   }
 }
