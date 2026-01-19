@@ -1,4 +1,14 @@
 import os
+from dotenv import load_dotenv
+
+# Load .env file first
+load_dotenv()
+
+# Allow OAuth over HTTP in development (from .env: OAUTHLIB_INSECURE_TRANSPORT=1)
+# This must be set BEFORE importing google oauth libraries
+if os.getenv("OAUTHLIB_INSECURE_TRANSPORT") == "1":
+    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware

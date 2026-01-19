@@ -14,6 +14,7 @@ from app.core.database import get_db
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.models.user import User, UserStatus
 from app.schemas.user import Token, UserCreate, User as UserSchema
+from app.services.email_service import send_activation_email
 import secrets
 
 router = APIRouter()
@@ -41,7 +42,7 @@ def get_google_flow() -> Flow:
         redirect_uri=settings.GOOGLE_REDIRECT_URI
     )
 
-@router.get("/auth/google/login")
+@router.get("/google/login")
 async def google_login(request: Request):
     """
     Generate a redirect to Google's OAuth 2.0 consent screen.
@@ -56,7 +57,7 @@ async def google_login(request: Request):
     return RedirectResponse(authorization_url)
 
 
-@router.get("/auth/google/callback")
+@router.get("/google/callback")
 async def google_callback(request: Request, db: Session = Depends(get_db)):
     """
     Process the OAuth 2.0 callback from Google.
@@ -136,8 +137,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     )
 
     # Redirect to the frontend with the token
-    # TODO: Make the frontend URL configurable
-    frontend_url = f"http://localhost:3000/auth/callback?token={access_token}"
+    frontend_url = f"{settings.FRONTEND_URL}/auth/callback?token={access_token}"
     return RedirectResponse(url=frontend_url)
 
 
@@ -176,8 +176,9 @@ def register(
     db.commit()
     db.refresh(user)
 
-    # TODO: Send activation email here
-    # send_activation_email(user.u_correo, user.token_activacion)
+    # Send activation email
+    user_name = f"{user.u_nombre} {user.u_appat}".strip()
+    send_activation_email(user.u_correo, user.token_activacion, user_name)
 
     return user
 
