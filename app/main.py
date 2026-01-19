@@ -66,3 +66,19 @@ def debug_config():
         },
         "all_env_vars_starting_with_db": [k for k in os.environ.keys() if "DB" in k.upper() or "DATABASE" in k.upper()],
     }
+
+
+@app.get("/debug/db")
+def debug_db():
+    """
+    Debug endpoint to test database connection.
+    Remove this in production after debugging!
+    """
+    from app.core.database import engine
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT 1"))
+            return {"status": "connected", "test_query": "SELECT 1 OK"}
+    except Exception as e:
+        return {"status": "error", "error": str(e), "error_type": type(e).__name__}
