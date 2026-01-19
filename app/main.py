@@ -43,3 +43,26 @@ def health_check():
     Health check endpoint
     """
     return {"status": "healthy"}
+
+
+@app.get("/debug/config")
+def debug_config():
+    """
+    Debug endpoint to check if environment variables are loaded correctly.
+    Remove this in production after debugging!
+    """
+    import os
+    return {
+        "database_url_set": bool(os.getenv("DATABASE_URL")),
+        "database_url_starts_with": os.getenv("DATABASE_URL", "NOT_SET")[:20] + "..." if os.getenv("DATABASE_URL") else "NOT_SET",
+        "secret_key_set": bool(os.getenv("SECRET_KEY")),
+        "mail_username_set": bool(os.getenv("MAIL_USERNAME")),
+        "mail_server_set": bool(os.getenv("MAIL_SERVER")),
+        "cors_origins": os.getenv("BACKEND_CORS_ORIGINS", "NOT_SET"),
+        "settings_loaded": {
+            "project_name": settings.PROJECT_NAME,
+            "api_v1_str": settings.API_V1_STR,
+            "database_url_loaded": bool(settings.DATABASE_URL) if hasattr(settings, 'DATABASE_URL') else False,
+        },
+        "all_env_vars_starting_with_db": [k for k in os.environ.keys() if "DB" in k.upper() or "DATABASE" in k.upper()],
+    }
