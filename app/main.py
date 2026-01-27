@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-from fastapi.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.core.config import settings
 from app.api.endpoints import api_router
@@ -12,11 +11,6 @@ app = FastAPI(
     version=settings.VERSION,
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
-
-# Add ProxyHeadersMiddleware to trust headers from the proxy
-# This is crucial for OAuth callbacks to work correctly behind a proxy like Azure's
-app.add_middleware(ProxyHeadersMiddleware)
-
 
 # Add session middleware
 # The secret key is used to sign the session cookie
