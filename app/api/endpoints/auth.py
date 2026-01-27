@@ -76,9 +76,12 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         if authorization_response.startswith("http://"):
             authorization_response = authorization_response.replace("http://", "https://", 1)
 
-        flow.fetch_token(
-            authorization_response=authorization_response,
-        )
+        # Use code and state from query params instead of full URL to avoid redirect_uri mismatch
+        code = request.query_params.get("code")
+        if not code:
+            raise HTTPException(status_code=400, detail="Authorization code not found")
+
+        flow.fetch_token(code=code)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error fetching token: {e}")
 
