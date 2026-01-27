@@ -69,8 +69,15 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
 
     flow = get_google_flow()
     try:
+        # Force HTTPS scheme for OAuth callback URL
+        # Azure App Service terminates SSL at the proxy level, so request.url might have http://
+        # We need to replace it with https:// for OAuth to work correctly
+        authorization_response = str(request.url)
+        if authorization_response.startswith("http://"):
+            authorization_response = authorization_response.replace("http://", "https://", 1)
+
         flow.fetch_token(
-            authorization_response=str(request.url),
+            authorization_response=authorization_response,
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error fetching token: {e}")
