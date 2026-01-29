@@ -349,3 +349,132 @@ async def get_token_status(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al verificar token: {str(e)}"
         )
+
+
+@router.get("/auth/scheduler-status")
+async def get_scheduler_status(
+    db: Session = Depends(get_db)
+):
+    """
+    Get the status of the automatic token refresh scheduler.
+
+    Returns information about the scheduler and the next scheduled refresh.
+
+    Example response:
+    ```json
+    {
+        "scheduler_running": true,
+        "next_refresh": "2024-01-16 09:30:00",
+        "refresh_interval_hours": 23,
+        "current_token_age_hours": 5.5,
+        "message": "Scheduler activo - próximo refresh en 17.5 horas"
+    }
+    ```
+    """
+    from datetime import datetime, timedelta
+    from sqlalchemy import text
+    from app.services.token_scheduler import token_scheduler
+
+    try:
+        scheduler = token_scheduler._scheduler
+        is_running = scheduler.running if scheduler else False
+
+        # Get current token age
+        query = text("""
+            SELECT fecha_registro FROM pp_token
+            ORDER BY fecha_registro DESC
+            LIMIT 1
+        """)
+        result = db.execute(query).fetchone()
+
+        current_token_age_hours = None
+        if result:
+            fecha_registro = result[0]
+            time_diff = datetime.now() - fecha_registro
+            current_token_age_hours = round(time_diff.total_seconds() / 3600, 2)
+
+        # Get next scheduled run
+        next_refresh = None
+        if is_running:
+            job = scheduler.get_job("refresh_usebeq_token")
+            if job and job.next_run_time:
+                next_refresh = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S")
+
+        message = "Scheduler activo" if is_running else "Scheduler no está corriendo"
+        if current_token_age_hours is not None:
+            hours_until_expiry = 24 - current_token_age_hours
+            message += f" - Token tiene {current_token_age_hours}h de antigüedad, expira en {hours_until_expiry:.1f}h"
+
+        return {
+            "scheduler_running": is_running,
+            "next_refresh": next_refresh,
+            "refresh_interval_hours": 23,
+            "current_token_age_hours": current_token_age_hours,
+            "message": message
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al verificar scheduler: {str(e)}"
+        )
+
+
+@router.post("/auth/force-refresh")
+async def force_token_refresh(
+    db: Session = Depends(get_db)
+):
+    """
+    Force an immediate refresh of the USEBEQ API token.
+
+    This endpoint manually triggers the token refresh process, regardless of
+    whether the current token is expired or not.
+
+    Useful for:
+    - Testing the refresh mechanism
+    - Recovering from a corrupted token
+    - Manual intervention when needed
+
+    Example response:
+    ```json
+    {
+        "success": true,
+        "message": "Token refrescado exitosamente",
+        "new_token_preview": "eyJhbGciOiJIUzUxMiIs...xyz789"
+    }
+    ```
+    """
+    from app.services.token_scheduler import token_scheduler
+    from sqlalchemy import text
+
+    try:
+        # Force token refresh
+        await token_scheduler.refresh_usebeq_token()
+
+        # Get the new token to confirm
+        query = text("""
+            SELECT token, fecha_registro FROM pp_token
+            ORDER BY fecha_registro DESC
+            LIMIT 1
+        """)
+        result = db.execute(query).fetchone()
+
+        if result:
+            token, fecha_registro = result
+            token_preview = f"{token[:30]}...{token[-10:]}" if len(token) > 40 else token
+
+            return {
+                "success": True,
+                "message": "Token refrescado exitosamente",
+                "new_token_preview": token_preview,
+                "fecha_registro": fecha_registro.strftime("%Y-%m-%d %H:%M:%S")
+            }
+        else:
+            return {
+                "success": False,
+                "message": "No se pudo obtener el token después del refresh"
+            }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al refrescar token: {str(e)}"
+        )

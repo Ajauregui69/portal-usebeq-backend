@@ -1,15 +1,48 @@
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.core.config import settings
 from app.api.endpoints import api_router
+from app.services.token_scheduler import token_scheduler
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for startup and shutdown events.
+    - On startup: Start the token scheduler and perform initial token refresh
+    - On shutdown: Stop the token scheduler
+    """
+    # Startup
+    logger.info("Starting application...")
+
+    # Start the token scheduler
+    token_scheduler.start()
+
+    # Perform initial token refresh on startup
+    logger.info("Performing initial USEBEQ token check...")
+    await token_scheduler.refresh_usebeq_token()
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down application...")
+    token_scheduler.stop()
 
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    lifespan=lifespan
 )
 
 # Add session middleware
