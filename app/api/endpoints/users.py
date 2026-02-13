@@ -31,7 +31,7 @@ def send_email_from_user(
     if not current_user.google_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Current user is not authenticated with a Google account."
+            detail="El usuario no esta autenticado con una cuenta de Google."
         )
 
     try:

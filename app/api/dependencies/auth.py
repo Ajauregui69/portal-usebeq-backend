@@ -21,7 +21,7 @@ def get_current_user(
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+        detail="No se pudieron validar las credenciales",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
@@ -55,6 +55,6 @@ def get_current_active_user(
     if current_user.estatus != UserStatus.VALIDADO:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is not activated"
+            detail="La cuenta no esta activada"
         )
     return current_user

@@ -86,7 +86,7 @@ async def link_student(
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Student already linked to your account"
+                detail="Este estudiante ya esta vinculado a tu cuenta"
             )
 
         # Link existing student
@@ -114,7 +114,7 @@ async def link_student(
     # For now, return error asking for CCT
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Student not found. Please use /link-student-with-cct endpoint and provide CCT"
+        detail="Estudiante no encontrado. Intenta vincular con CURP y CCT."
     )
 
 
@@ -150,7 +150,7 @@ async def link_student_with_cct(
     if relacion not in ['padre', 'madre', 'tutor']:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Relacion must be: padre, madre, or tutor"
+            detail="La relacion debe ser: padre, madre o tutor"
         )
 
     # Initialize USEBEQ API service
@@ -291,7 +291,7 @@ def unlink_student(
     if not student_parent:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Student link not found"
+            detail="Vinculacion de estudiante no encontrada"
         )
 
     db.delete(student_parent)

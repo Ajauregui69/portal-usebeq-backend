@@ -65,7 +65,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     from datetime import datetime
     state = request.session.get("state")
     if not state or state != request.query_params.get("state"):
-        raise HTTPException(status_code=401, detail="Invalid state parameter")
+        raise HTTPException(status_code=401, detail="Parametro de estado invalido")
 
     flow = get_google_flow()
     try:
@@ -79,11 +79,11 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         # Use code and state from query params instead of full URL to avoid redirect_uri mismatch
         code = request.query_params.get("code")
         if not code:
-            raise HTTPException(status_code=400, detail="Authorization code not found")
+            raise HTTPException(status_code=400, detail="Codigo de autorizacion no encontrado")
 
         flow.fetch_token(code=code)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error fetching token: {e}")
+        raise HTTPException(status_code=400, detail=f"Error al obtener token: {e}")
 
     credentials = flow.credentials
     
@@ -101,7 +101,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         last_name = profile["names"][0].get("familyName", "")
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not retrieve profile info: {e}")
+        raise HTTPException(status_code=500, detail=f"No se pudo obtener la informacion del perfil: {e}")
 
     # Check if user exists
     user = db.query(User).filter(User.google_id == google_id).first()
@@ -167,7 +167,7 @@ def register(
     if user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
+            detail="Este correo ya esta registrado"
         )
 
     # Create new user
@@ -240,19 +240,19 @@ def login(
     if user and user.google_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This account is registered with Google. Please use Google login."
+            detail="Esta cuenta esta registrada con Google. Por favor usa el inicio de sesion con Google."
         )
 
     if not user or not user.u_pass or not verify_password(form_data.password, user.u_pass):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password"
+            detail="Correo o contraseña incorrectos"
         )
 
     if user.estatus != UserStatus.VALIDADO:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account not activated. Please check your email."
+            detail="Cuenta no activada. Por favor revisa tu correo electronico."
         )
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -280,13 +280,13 @@ def activate_account(
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Invalid activation token"
+            detail="Token de activacion invalido"
         )
 
     if user.estatus == UserStatus.VALIDADO:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Account already activated"
+            detail="La cuenta ya fue activada"
         )
 
     user.estatus = UserStatus.VALIDADO
@@ -296,7 +296,7 @@ def activate_account(
 
     db.commit()
 
-    return {"message": "Account activated successfully"}
+    return {"message": "Cuenta activada exitosamente"}
 
 
 @router.post("/forgot-password")

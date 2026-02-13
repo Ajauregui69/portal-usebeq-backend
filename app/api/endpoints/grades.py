@@ -31,7 +31,7 @@ def get_student_grades(
     if not student_parent:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have access to this student's grades"
+            detail="No tienes acceso a las calificaciones de este estudiante"
         )
 
     # Get all grades for the student

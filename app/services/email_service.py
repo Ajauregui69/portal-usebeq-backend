@@ -19,7 +19,7 @@ def get_google_credentials(user: User) -> Credentials:
     if not user.google_id or not user.google_refresh_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User is not configured for Google services."
+            detail="El usuario no esta configurado para servicios de Google."
         )
 
     creds = Credentials.from_authorized_user_info(
@@ -58,7 +58,7 @@ def send_gmail(
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found."
+            detail="Usuario no encontrado."
         )
 
     try:
