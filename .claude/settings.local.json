@@ -24,7 +24,11 @@
       "Bash(venv/bin/python3 -m pip install:*)",
       "Bash(venv/bin/python3:*)",
       "Bash(find:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(az account show:*)",
+      "Bash(az webapp config appsettings list:*)",
+      "Bash(az webapp list:*)",
+      "Bash(az webapp config appsettings set:*)"
     ]
   }
 }

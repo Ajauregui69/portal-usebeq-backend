@@ -352,6 +352,13 @@ def reset_password(
 
     user.u_pass = get_password_hash(new_password)
     user.token_activacion = None
+
+    # Si la cuenta estaba pendiente, activarla
+    if user.estatus != UserStatus.VALIDADO:
+        user.estatus = UserStatus.VALIDADO
+        from datetime import datetime
+        user.fecha_validacion = datetime.utcnow()
+
     db.commit()
 
     return {"message": "Contraseña actualizada correctamente"}
