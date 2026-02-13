@@ -297,3 +297,61 @@ def activate_account(
     db.commit()
 
     return {"message": "Account activated successfully"}
+
+
+@router.post("/forgot-password")
+def forgot_password(
+    *,
+    db: Session = Depends(get_db),
+    email: str,
+) -> Any:
+    """
+    Send password reset token via email
+    """
+    user = db.query(User).filter(User.u_correo == email).first()
+    if not user:
+        # Don't reveal if email exists
+        return {"message": "Si el correo está registrado, recibirás instrucciones para restablecer tu contraseña"}
+
+    if user.google_id and not user.u_pass:
+        return {"message": "Esta cuenta está registrada con Google. Por favor usa el inicio de sesión con Google."}
+
+    # Generate reset token
+    reset_token = secrets.token_urlsafe(32)
+    user.token_activacion = reset_token
+    db.commit()
+
+    # Send reset email
+    user_name = f"{user.u_nombre} {user.u_appat}".strip()
+    try:
+        from app.services.email_service import send_password_reset_email
+        send_password_reset_email(user.u_correo, reset_token, user_name)
+    except Exception:
+        pass  # Don't fail if email sending fails
+
+    return {"message": "Si el correo está registrado, recibirás instrucciones para restablecer tu contraseña"}
+
+
+@router.post("/reset-password/{token}")
+def reset_password(
+    *,
+    db: Session = Depends(get_db),
+    token: str,
+    new_password: str,
+) -> Any:
+    """
+    Reset password using token
+    """
+    user = db.query(User).filter(User.token_activacion == token).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Token inválido o expirado"
+        )
+
+    user.u_pass = get_password_hash(new_password)
+    user.token_activacion = None
+    db.commit()
+
+    return {"message": "Contraseña actualizada correctamente"}

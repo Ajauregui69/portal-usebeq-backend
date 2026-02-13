@@ -206,3 +206,39 @@ def send_activation_email(to_email: str, token: str, user_name: str) -> bool:
         subject="Activa tu cuenta - Portal USEBEQ",
         html_content=html_content
     )
+
+
+def send_password_reset_email(email: str, token: str, user_name: str):
+    """Send password reset email"""
+    from app.core.config import settings
+
+    reset_url = f"{settings.FRONTEND_URL}/reset-password/{token}"
+
+    subject = "Restablecer contraseña - Portal USEBEQ"
+    body = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #1e40af, #4f46e5); padding: 30px; text-align: center;">
+            <h1 style="color: white; margin: 0;">Portal USEBEQ</h1>
+        </div>
+        <div style="padding: 30px; background: #f8fafc;">
+            <h2>Hola, {user_name}</h2>
+            <p>Recibimos una solicitud para restablecer tu contraseña.</p>
+            <p>Haz clic en el siguiente enlace para crear una nueva contraseña:</p>
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{reset_url}" style="background: #1e40af; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;">
+                    Restablecer Contraseña
+                </a>
+            </div>
+            <p style="color: #64748b; font-size: 14px;">Si no solicitaste este cambio, puedes ignorar este correo.</p>
+            <p style="color: #64748b; font-size: 14px;">Este enlace expirará cuando sea utilizado.</p>
+        </div>
+    </body>
+    </html>
+    """
+
+    try:
+        send_system_email(email, subject, body)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to send password reset email: {e}")

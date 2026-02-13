@@ -222,7 +222,21 @@ async def link_student_with_cct(
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Student already linked to your account"
+                detail="Este estudiante ya está vinculado a tu cuenta"
+            )
+
+        # Check if same relacion already taken by another user
+        existing_relacion = db.query(StudentParent).filter(
+            StudentParent.al_id == student_id,
+            StudentParent.relacion == relacion
+        ).first()
+
+        if existing_relacion and existing_relacion.u_id != current_user.u_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"El parentesco {relacion.upper()} ya ha sido vinculado al estudiante con otra cuenta. "
+                       "Por favor intenta con un parentesco diferente. "
+                       "En caso de necesitar apoyo puedes escribir a: epena@usebeq.edu.mx"
             )
 
         # Create link between parent and student
@@ -340,7 +354,7 @@ def add_student_to_account(
         madre = existing_result[2]
         tutor = existing_result[3]
 
-        # Check if current user already linked
+        # Check if current user already linked with same parentesco
         if parentesco == 'PADRE' and padre == correo:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -355,6 +369,29 @@ def add_student_to_account(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Este estudiante ya está vinculado a tu cuenta como TUTOR"
+            )
+
+        # Check if parentesco is already taken by ANOTHER user
+        if parentesco == 'PADRE' and padre is not None and padre != correo:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El parentesco PADRE ya ha sido vinculado al estudiante con otra cuenta. "
+                       "Por favor verifica el vínculo que has seleccionado o intenta con un parentesco diferente. "
+                       "En caso de necesitar apoyo puedes escribir a: epena@usebeq.edu.mx"
+            )
+        if parentesco == 'MADRE' and madre is not None and madre != correo:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El parentesco MADRE ya ha sido vinculado al estudiante con otra cuenta. "
+                       "Por favor verifica el vínculo que has seleccionado o intenta con un parentesco diferente. "
+                       "En caso de necesitar apoyo puedes escribir a: epena@usebeq.edu.mx"
+            )
+        if parentesco == 'TUTOR' and tutor is not None and tutor != correo:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El parentesco TUTOR ya ha sido vinculado al estudiante con otra cuenta. "
+                       "Por favor verifica el vínculo que has seleccionado o intenta con un parentesco diferente. "
+                       "En caso de necesitar apoyo puedes escribir a: epena@usebeq.edu.mx"
             )
 
         # Update parentesco

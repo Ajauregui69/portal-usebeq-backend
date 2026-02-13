@@ -16,7 +16,15 @@
       "Bash(npm --version)",
       "Bash(pip show:*)",
       "Bash(python:*)",
-      "Bash(test:*)"
+      "Bash(test:*)",
+      "Bash(source:*)",
+      "Bash(ls:*)",
+      "Bash(uvicorn app.main:app:*)",
+      "Bash(chmod:*)",
+      "Bash(venv/bin/python3 -m pip install:*)",
+      "Bash(venv/bin/python3:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)"
     ]
   }
 }
