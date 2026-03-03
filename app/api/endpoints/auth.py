@@ -54,6 +54,9 @@ async def google_login(request: Request):
         include_granted_scopes="true"
     )
     request.session["state"] = state
+    # Persist code_verifier (PKCE) so the callback can reuse it
+    if getattr(flow, "code_verifier", None):
+        request.session["code_verifier"] = flow.code_verifier
     return RedirectResponse(authorization_url)
 
 
@@ -68,6 +71,10 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Parametro de estado invalido")
 
     flow = get_google_flow()
+    # Restore code_verifier (PKCE) from session so fetch_token can send it to Google
+    code_verifier = request.session.get("code_verifier")
+    if code_verifier:
+        flow.code_verifier = code_verifier
     try:
         # Force HTTPS scheme for OAuth callback URL
         # Azure App Service terminates SSL at the proxy level, so request.url might have http://
