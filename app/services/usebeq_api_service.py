@@ -160,10 +160,20 @@ class USEBEQAPIService:
 
     async def get_boleta(self, id_alumno: int) -> bytes:
         """
-        Get student report card (boleta) as PDF stream.
-        Uses the historical endpoint for the current cycle (2025-2026).
+        Get student report card (boleta) as PDF stream for the current cycle.
+        Uses the dedicated /boleta/{idAlumno} endpoint.
         """
-        return await self.get_boleta_historica(id_alumno, 2025)
+        token = await self._get_valid_token()
+
+        async with httpx.AsyncClient(verify=False) as client:
+            response = await client.get(
+                f"{self.base_url}/boleta/{id_alumno}",
+                headers={
+                    "Authorization": f"Bearer {token}"
+                }
+            )
+            response.raise_for_status()
+            return response.content
 
     async def get_boleta_historica(self, id_alumno: int, anio_inicio: int) -> bytes:
         """
