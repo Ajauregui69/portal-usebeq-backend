@@ -248,6 +248,24 @@ async def link_student_with_cct(
         db.add(student_parent)
         db.commit()
 
+        # Detect potential siblings — same al_appat + al_apmat, different student
+        siblings_detected = []
+        new_student_obj = db.query(Student).filter(Student.al_id == student_id).first()
+        if new_student_obj and new_student_obj.al_appat:
+            all_linked = db.query(StudentParent).filter(
+                StudentParent.u_id == current_user.u_id,
+                StudentParent.al_id != student_id
+            ).all()
+            for sp in all_linked:
+                other = db.query(Student).filter(Student.al_id == sp.al_id).first()
+                if (other
+                        and other.al_appat == new_student_obj.al_appat
+                        and other.al_apmat == new_student_obj.al_apmat):
+                    siblings_detected.append({
+                        "al_id": other.al_id,
+                        "nombre": f"{other.al_nombre} {other.al_appat}"
+                    })
+
         return {
             "success": True,
             "message": "Student linked successfully",
@@ -261,7 +279,8 @@ async def link_student_with_cct(
                 "grado": estudiante_data.Grado,
                 "grupo": estudiante_data.Grupo,
                 "estatus": estudiante_data.Estatus
-            }
+            },
+            "siblings": siblings_detected if siblings_detected else None
         }
 
     except HTTPException:
@@ -298,6 +317,100 @@ def unlink_student(
     db.commit()
 
     return {"message": "Student unlinked successfully"}
+
+
+@router.post("/confirm-sibling")
+def confirm_sibling(
+    *,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    al_id: int,
+    her_id: int
+) -> Any:
+    """
+    Confirm sibling relationship between two students already linked to the user.
+    Inserts the relationship into pp_hermanos.
+    """
+    from sqlalchemy import text
+    from datetime import datetime
+
+    # Verify both students belong to this user
+    s1_link = db.query(StudentParent).filter(
+        StudentParent.al_id == al_id,
+        StudentParent.u_id == current_user.u_id
+    ).first()
+    s2_link = db.query(StudentParent).filter(
+        StudentParent.al_id == her_id,
+        StudentParent.u_id == current_user.u_id
+    ).first()
+
+    if not s1_link or not s2_link:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Uno o ambos estudiantes no están vinculados a tu cuenta"
+        )
+
+    s1 = db.query(Student).filter(Student.al_id == al_id).first()
+    s2 = db.query(Student).filter(Student.al_id == her_id).first()
+
+    if not s1 or not s2:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Estudiante no encontrado")
+
+    # Get current school year
+    now = datetime.now()
+    year = now.year if now.month > 7 else now.year - 1
+
+    def get_enrollment(student_id):
+        return db.execute(text("""
+            SELECT dbo.SCE002.clavecct, dbo.SCE002.eg_grado, dbo.SCE002.eg_grupo
+            FROM dbo.SCE002
+            INNER JOIN dbo.SCE006 ON dbo.SCE002.eg_id = dbo.SCE006.eg_id
+            WHERE dbo.SCE006.al_id = :al_id AND dbo.SCE002.ce_inicic = :year
+        """), {"al_id": student_id, "year": str(year)}).fetchone()
+
+    s1_info = get_enrollment(al_id)
+    s2_info = get_enrollment(her_id)
+
+    # Determine order: older sibling (smaller birth year in CURP[4:6]) goes as al_id
+    year_s1 = s1.al_curp[4:6] if s1.al_curp and len(s1.al_curp) >= 6 else "99"
+    year_s2 = s2.al_curp[4:6] if s2.al_curp and len(s2.al_curp) >= 6 else "99"
+
+    if year_s1 <= year_s2:
+        older, older_id, older_info = s1, al_id, s1_info
+        younger, younger_id, younger_info = s2, her_id, s2_info
+    else:
+        older, older_id, older_info = s2, her_id, s2_info
+        younger, younger_id, younger_info = s1, al_id, s1_info
+
+    # Check if relationship already exists
+    existing = db.execute(text(
+        "SELECT h_id FROM pp_hermanos WHERE al_id = :al_id AND her_id = :her_id"
+    ), {"al_id": older_id, "her_id": younger_id}).fetchone()
+
+    if existing:
+        return {"success": True, "message": "La relación de hermandad ya estaba registrada"}
+
+    db.execute(text("""
+        INSERT INTO pp_hermanos (
+            al_id, al_curp, al_nombre, al_appat, al_apmat, al_cct, al_grado, al_grupo,
+            her_id, her_curp, her_nombre, her_appat, her_apmat, her_cct, her_grado, her_grupo
+        ) VALUES (
+            :al_id, :al_curp, :al_nombre, :al_appat, :al_apmat, :al_cct, :al_grado, :al_grupo,
+            :her_id, :her_curp, :her_nombre, :her_appat, :her_apmat, :her_cct, :her_grado, :her_grupo
+        )
+    """), {
+        "al_id": older_id, "al_curp": older.al_curp, "al_nombre": older.al_nombre,
+        "al_appat": older.al_appat, "al_apmat": older.al_apmat or "",
+        "al_cct": older_info[0] if older_info else "", "al_grado": older_info[1] if older_info else "",
+        "al_grupo": older_info[2] if older_info else "",
+        "her_id": younger_id, "her_curp": younger.al_curp, "her_nombre": younger.al_nombre,
+        "her_appat": younger.al_appat, "her_apmat": younger.al_apmat or "",
+        "her_cct": younger_info[0] if younger_info else "", "her_grado": younger_info[1] if younger_info else "",
+        "her_grupo": younger_info[2] if younger_info else ""
+    })
+    db.commit()
+
+    return {"success": True, "message": "Relación de hermandad confirmada correctamente"}
 
 
 @router.post("/add-student", response_model=AddStudentResponse)
@@ -498,87 +611,11 @@ def add_student_to_account(
             }).fetchone()
 
             if linked_info:
-                linked_al_cct = linked_info[3]
-                linked_al_grado = linked_info[1]
-                linked_al_grupo = linked_info[2]
-
-                # Determine order by birth year in CURP (positions 4-5)
-                year_new = curp[4:6]
-                year_linked = linked_curp[4:6]
-
-                # Insert sibling relationship in correct order
-                if year_new < year_linked:
-                    # New student is older
-                    check_sibling = text("""
-                        SELECT h_id FROM pp_hermanos
-                        WHERE al_id = :al_id AND her_id = :her_id
-                    """)
-                    exists = db.execute(check_sibling, {
-                        "al_id": al_id,
-                        "her_id": linked_al_id
-                    }).fetchone()
-
-                    if not exists:
-                        insert_sibling = text("""
-                            INSERT INTO pp_hermanos (
-                                al_id, al_curp, al_nombre, al_appat, al_apmat,
-                                al_cct, al_grado, al_grupo,
-                                her_id, her_curp, her_nombre, her_appat, her_apmat,
-                                her_cct, her_grado, her_grupo
-                            ) VALUES (
-                                :al_id, :al_curp, :al_nombre, :al_appat, :al_apmat,
-                                :al_cct, :al_grado, :al_grupo,
-                                :her_id, :her_curp, :her_nombre, :her_appat, :her_apmat,
-                                :her_cct, :her_grado, :her_grupo
-                            )
-                        """)
-                        db.execute(insert_sibling, {
-                            "al_id": al_id, "al_curp": curp, "al_nombre": al_nombre,
-                            "al_appat": apellido, "al_apmat": al_apmat,
-                            "al_cct": al_cct, "al_grado": al_grado, "al_grupo": al_grupo,
-                            "her_id": linked_al_id, "her_curp": linked_curp,
-                            "her_nombre": linked_nombre, "her_appat": linked_appat,
-                            "her_apmat": linked_apmat, "her_cct": linked_al_cct,
-                            "her_grado": linked_al_grado, "her_grupo": linked_al_grupo
-                        })
-                        siblings_detected.append(linked_nombre + " " + linked_appat)
-
-                else:
-                    # Linked student is older
-                    check_sibling = text("""
-                        SELECT h_id FROM pp_hermanos
-                        WHERE al_id = :al_id AND her_id = :her_id
-                    """)
-                    exists = db.execute(check_sibling, {
-                        "al_id": linked_al_id,
-                        "her_id": al_id
-                    }).fetchone()
-
-                    if not exists:
-                        insert_sibling = text("""
-                            INSERT INTO pp_hermanos (
-                                al_id, al_curp, al_nombre, al_appat, al_apmat,
-                                al_cct, al_grado, al_grupo,
-                                her_id, her_curp, her_nombre, her_appat, her_apmat,
-                                her_cct, her_grado, her_grupo
-                            ) VALUES (
-                                :al_id, :al_curp, :al_nombre, :al_appat, :al_apmat,
-                                :al_cct, :al_grado, :al_grupo,
-                                :her_id, :her_curp, :her_nombre, :her_appat, :her_apmat,
-                                :her_cct, :her_grado, :her_grupo
-                            )
-                        """)
-                        db.execute(insert_sibling, {
-                            "al_id": linked_al_id, "al_curp": linked_curp,
-                            "al_nombre": linked_nombre, "al_appat": linked_appat,
-                            "al_apmat": linked_apmat, "al_cct": linked_al_cct,
-                            "al_grado": linked_al_grado, "al_grupo": linked_al_grupo,
-                            "her_id": al_id, "her_curp": curp,
-                            "her_nombre": al_nombre, "her_appat": apellido,
-                            "her_apmat": al_apmat, "her_cct": al_cct,
-                            "her_grado": al_grado, "her_grupo": al_grupo
-                        })
-                        siblings_detected.append(linked_nombre + " " + linked_appat)
+                # Potential sibling detected — do NOT auto-link; return for user confirmation
+                siblings_detected.append({
+                    "al_id": linked_al_id,
+                    "nombre": f"{linked_nombre} {linked_appat}"
+                })
 
     # Insert student into pp_alumnos
     fecha = datetime.now().strftime("%d-%m-%Y")
