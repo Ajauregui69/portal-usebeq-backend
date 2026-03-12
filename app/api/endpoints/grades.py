@@ -144,7 +144,7 @@ def consulta_calificaciones(payload: ConsultaRequest) -> Any:
     if response.status_code != 200:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Error al consultar el portal")
 
-    soup = BeautifulSoup(response.text, "lxml")
+    soup = BeautifulSoup(response.text, "html.parser")
 
     # Verificar si el alumno existe (la página muestra el CURP si lo encontró)
     body_text = soup.get_text()
