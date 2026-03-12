@@ -6,6 +6,7 @@
 # Virtual environment
 venv/
 .venv/
+antenv/
 
 # Python cache
 __pycache__/
