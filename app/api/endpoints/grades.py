@@ -110,111 +110,111 @@ def consulta_debug(payload: ConsultaRequest, db: Session = Depends(get_db)) -> A
 
 
 @router.post("/consulta", response_model=ConsultaResponse)
-def consulta_calificaciones(payload: ConsultaRequest, db: Session = Depends(get_db)) -> Any:
+def consulta_calificaciones(payload: ConsultaRequest) -> Any:
     """
     Consulta pública de calificaciones por CURP (sin autenticación).
-    Replica la funcionalidad de consulta.php / califica.php del portal anterior.
+    Hace scraping del portal original de USEBEQ.
     """
+    import httpx
+    from bs4 import BeautifulSoup
+
     curp = payload.curp.strip().upper()
 
-    # 1. Buscar alumno por CURP
-    student = db.execute(
-        text("SELECT al_id, al_nombre, al_appat, al_apmat FROM SCE004 WHERE al_curp = :curp"),
-        {"curp": curp}
-    ).fetchone()
+    PORTAL_URL = "https://portal.usebeq.edu.mx/portal/portal/califica.php"
 
-    if not student:
+    try:
+        response = httpx.post(
+            PORTAL_URL,
+            data={"curp": curp},
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": "https://portal.usebeq.edu.mx/portal/portal/consulta.php",
+            },
+            timeout=20,
+            follow_redirects=True,
+            verify=False,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"No se pudo conectar al portal: {e}")
+
+    if response.status_code == 404:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="La consulta de calificaciones no está disponible en este momento")
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Error al consultar el portal")
+
+    soup = BeautifulSoup(response.text, "lxml")
+
+    # Verificar si el alumno existe (la página muestra el CURP si lo encontró)
+    body_text = soup.get_text()
+    if "No se encontró" in body_text or curp not in body_text:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No se encontró registro con la CURP proporcionada")
 
-    al_id = student[0]
-
-    # 2. Determinar ciclo escolar actual (meses 1-8 → año anterior, meses 9-12 → año actual)
-    now = datetime.now()
-    year = now.year if now.month >= 9 else now.year - 1
-    ciclo = f"{year}-{year + 1}"
-
-    # 3. Obtener la inscripción más reciente del ciclo actual (columnas reales de SCE005)
-    enrollment = db.execute(
-        text("""
-            SELECT nivel, eg_grado, matricula_id
-            FROM SCE005
-            WHERE al_id = :al_id AND ciclo_escolar LIKE :ciclo
-            ORDER BY matricula_id DESC
-            LIMIT 1
-        """),
-        {"al_id": al_id, "ciclo": f"{year}%"}
-    ).fetchone()
-
-    nivel = enrollment[0].strip() if enrollment and enrollment[0] else None
-    grado = str(enrollment[1]) if enrollment and enrollment[1] else None
-    matricula_id = enrollment[2] if enrollment else None
-
-    # 4. Obtener calificaciones del ciclo actual (filtrando por matricula_id si existe)
-    if matricula_id:
-        grades = db.query(Grade).filter(
-            Grade.al_id == al_id,
-            Grade.matricula_id == matricula_id
-        ).all()
-    else:
-        grades = db.query(Grade).filter(Grade.al_id == al_id).all()
-
-    # Construir materias agrupando periodos por nombre de materia
-    materias_dict: dict = {}
-    for g in grades:
-        mat = g.materia or ""
-        if mat not in materias_dict:
-            materias_dict[mat] = {"materia": mat, "calif1": None, "calif2": None, "calif3": None, "promedio": None}
-        periodo = (g.periodo or "").lower()
-        calificacion = str(g.calificacion) if g.calificacion is not None else None
-        if "1" in periodo or "primer" in periodo:
-            materias_dict[mat]["calif1"] = calificacion
-        elif "2" in periodo or "segund" in periodo:
-            materias_dict[mat]["calif2"] = calificacion
-        elif "3" in periodo or "tercer" in periodo:
-            materias_dict[mat]["calif3"] = calificacion
-
-    materias = [ConsultaMateria(**v) for v in materias_dict.values()]
-
-    # 5. Obtener componentes curriculares (SCE044) — silencioso si la tabla no existe
-    componentes_rows = []
-    try:
-        componentes_rows = db.execute(
-            text("""
-                SELECT cm_descrip, cc_nivel1, cc_nivel2, cc_nivel3
-                FROM SCE044
-                WHERE al_id = :al_id AND ciclo_escolar LIKE :ciclo
-            """),
-            {"al_id": al_id, "ciclo": f"{year}%"}
-        ).fetchall()
-    except Exception:
-        pass
-
-    componentes = [
-        ConsultaComponente(
-            campo=row[0] or "",
-            nivel1=row[1].strip() if row[1] else None,
-            nivel2=row[2].strip() if row[2] else None,
-            nivel3=row[3].strip() if row[3] else None,
-        )
-        for row in componentes_rows
-        if row[1] is not None
-    ]
-
-    # 6. Observaciones
-    observaciones = []
-    for m in materias:
-        if m.calif1 in ("1", "-"):
-            observaciones.append("- Información insuficiente, al registrar una comunicación y participación intermitente.")
+    # Extraer ciclo escolar del encabezado de la tabla
+    ciclo = ""
+    for h3 in soup.find_all("h3"):
+        if "Ciclo escolar" in h3.get_text():
+            # "Evaluaciones Ciclo escolar: 2025-2026"
+            parts = h3.get_text().split(":")
+            if len(parts) > 1:
+                ciclo = parts[-1].strip()
             break
-    for m in materias:
-        if m.calif1 in ("2", "- -"):
-            observaciones.append("- - Sin información, al registrar una comunicación prácticamente inexistente.")
-            break
+
+    # Extraer materias de la primera tabla (tabla oscura con calificaciones)
+    materias: List[ConsultaMateria] = []
+    tables = soup.find_all("table", class_="table-dark")
+
+    if tables:
+        rows = tables[0].find("tbody").find_all("tr")
+        for row in rows:
+            cols = row.find_all(["th", "td"])
+            if len(cols) >= 5:
+                nombre = cols[0].get_text(strip=True)
+                calif1 = cols[1].get_text(strip=True) or None
+                calif2 = cols[2].get_text(strip=True) or None
+                calif3 = cols[3].get_text(strip=True) or None
+                promedio = cols[4].get_text(strip=True) or None
+                if nombre:
+                    materias.append(ConsultaMateria(
+                        materia=nombre,
+                        calif1=calif1,
+                        calif2=calif2,
+                        calif3=calif3,
+                        promedio=promedio,
+                    ))
+
+    # Extraer componentes curriculares de la segunda tabla
+    componentes: List[ConsultaComponente] = []
+    if len(tables) > 1:
+        rows = tables[1].find("tbody").find_all("tr")
+        for row in rows:
+            cols = row.find_all(["th", "td"])
+            if len(cols) >= 2:
+                campo = cols[0].get_text(strip=True)
+                nivel = cols[1].get_text(strip=True) or None
+                obs = cols[2].get_text(strip=True) if len(cols) > 2 else None
+                if campo:
+                    componentes.append(ConsultaComponente(
+                        campo=campo,
+                        nivel1=nivel,
+                        nivel2=obs,
+                        nivel3=None,
+                    ))
+
+    # Extraer observaciones de la tercera tabla
+    observaciones: List[str] = []
+    if len(tables) > 2:
+        rows = tables[2].find("tbody").find_all("tr")
+        for row in rows:
+            texto = row.get_text(strip=True)
+            if texto:
+                observaciones.append(texto)
 
     return ConsultaResponse(
         curp=curp,
-        nivel=nivel,
-        grado=grado,
+        nivel=None,
+        grado=None,
         ciclo=ciclo,
         materias=materias,
         componentes=componentes,
