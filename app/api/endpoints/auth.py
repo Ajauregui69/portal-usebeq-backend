@@ -84,6 +84,10 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         if not code:
             raise HTTPException(status_code=400, detail="Codigo de autorizacion no encontrado")
 
+        # OAUTHLIB_RELAX_TOKEN_SCOPE: accept when Google returns more scopes than requested
+        # (e.g. previously granted gmail.send still included in token)
+        import os
+        os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
         flow.fetch_token(code=code)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error al obtener token: {e}")
