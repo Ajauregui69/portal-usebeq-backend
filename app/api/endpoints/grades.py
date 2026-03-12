@@ -65,33 +65,46 @@ def consulta_debug(payload: ConsultaRequest, db: Session = Depends(get_db)) -> A
 
     al_id = result["sce004"]["al_id"]
 
-    # Test 2: SCE005 with PHP column names (SQL Server)
+    # Test 2: SCE005 — all rows for this student (show columns and any data)
     try:
-        r = db.execute(text("SELECT TOP(1) pr_clave, eg_grado FROM SCE005 WHERE al_id = :al_id AND ce_inicic = :year"), {"al_id": al_id, "year": year}).fetchone()
-        result["sce005_sqlserver"] = dict(zip(["pr_clave","eg_grado"], r)) if r else None
+        rows = db.execute(text("SELECT * FROM SCE005 WHERE al_id = :al_id ORDER BY matricula_id DESC LIMIT 5"), {"al_id": al_id}).fetchall()
+        if rows:
+            result["sce005_rows"] = [dict(zip(r._mapping.keys(), r)) for r in rows]
+        else:
+            result["sce005_rows"] = []
+        # Also get column names
+        col_rows = db.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name = 'SCE005' ORDER BY ordinal_position")).fetchall()
+        result["sce005_columns"] = [r[0] for r in col_rows]
     except Exception as e:
-        result["sce005_sqlserver_error"] = str(e)
+        result["sce005_error"] = str(e)
 
-    # Test 3: SCE005 with ORM column names (MySQL)
+    # Test 3: SCE006 — all rows for this student
     try:
-        r = db.execute(text("SELECT nivel, eg_grado, ciclo_escolar FROM SCE005 WHERE al_id = :al_id ORDER BY matricula_id DESC LIMIT 1"), {"al_id": al_id}).fetchone()
-        result["sce005_mysql"] = dict(zip(["nivel","eg_grado","ciclo_escolar"], r)) if r else None
+        rows = db.execute(text("SELECT * FROM SCE006 WHERE al_id = :al_id LIMIT 5"), {"al_id": al_id}).fetchall()
+        if rows:
+            result["sce006_rows"] = [dict(zip(r._mapping.keys(), r)) for r in rows]
+        else:
+            result["sce006_rows"] = []
+        col_rows = db.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name = 'SCE006' ORDER BY ordinal_position")).fetchall()
+        result["sce006_columns"] = [r[0] for r in col_rows]
     except Exception as e:
-        result["sce005_mysql_error"] = str(e)
+        result["sce006_error"] = str(e)
 
-    # Test 4: Stored procedure
+    # Test 4: Grade ORM model
     try:
-        rows = db.execute(text("EXEC sce2018.[dbo].[spr_GetCalificaciones] @AL_ID = :al_id, @ciclo = :year"), {"al_id": al_id, "year": year}).fetchall()
-        result["stored_proc"] = [dict(zip(r.keys(), r)) for r in rows[:3]] if rows else []
+        from app.models.grade import Grade
+        grades = db.query(Grade).filter(Grade.al_id == al_id).limit(5).all()
+        result["grade_model_rows"] = len(grades)
+        result["grade_model_sample"] = [{"id": g.id, "materia": g.materia, "periodo": g.periodo, "calificacion": str(g.calificacion)} for g in grades]
     except Exception as e:
-        result["stored_proc_error"] = str(e)
+        result["grade_model_error"] = str(e)
 
-    # Test 5: dbo.SCE006 (used in students.py)
+    # Test 5: MySQL CALL syntax for stored procedure (if it exists as MySQL SP)
     try:
-        rows = db.execute(text("SELECT TOP(5) * FROM dbo.SCE006 WHERE al_id = :al_id"), {"al_id": al_id}).fetchall()
-        result["dbo_sce006"] = [list(r) for r in rows]
+        rows = db.execute(text("CALL spr_GetCalificaciones(:al_id, :year)"), {"al_id": al_id, "year": year}).fetchall()
+        result["mysql_sp"] = [dict(zip(r._mapping.keys(), r)) for r in rows[:3]] if rows else []
     except Exception as e:
-        result["dbo_sce006_error"] = str(e)
+        result["mysql_sp_error"] = str(e)
 
     return result
 
