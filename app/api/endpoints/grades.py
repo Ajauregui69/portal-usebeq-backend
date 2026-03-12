@@ -43,6 +43,16 @@ class ConsultaResponse(BaseModel):
     observaciones: List[str]
 
 
+@router.post("/consulta-debug")
+def consulta_debug(payload: ConsultaRequest, db: Session = Depends(get_db)) -> Any:
+    """Debug endpoint — exposes full traceback. Remove after debugging."""
+    import traceback
+    try:
+        return consulta_calificaciones(payload, db)
+    except Exception as e:
+        return {"error": str(e), "traceback": traceback.format_exc()}
+
+
 @router.post("/consulta", response_model=ConsultaResponse)
 def consulta_calificaciones(payload: ConsultaRequest, db: Session = Depends(get_db)) -> Any:
     """
