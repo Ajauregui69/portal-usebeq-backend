@@ -45,12 +45,34 @@ class ConsultaResponse(BaseModel):
 
 @router.post("/consulta-debug")
 def consulta_debug(payload: ConsultaRequest, db: Session = Depends(get_db)) -> Any:
-    """Debug endpoint — exposes full traceback. Remove after debugging."""
-    import traceback
-    try:
-        return consulta_calificaciones(payload, db)
-    except Exception as e:
-        return {"error": str(e), "traceback": traceback.format_exc()}
+    """Debug endpoint — exposes raw DB data. Remove after debugging."""
+    curp = payload.curp.strip().upper()
+
+    student = db.execute(
+        text("SELECT al_id, al_nombre FROM SCE004 WHERE al_curp = :curp"),
+        {"curp": curp}
+    ).fetchone()
+    if not student:
+        return {"error": "CURP not found"}
+
+    al_id = student[0]
+
+    enrollments = db.execute(
+        text("SELECT matricula_id, nivel, eg_grado, ciclo_escolar FROM SCE005 WHERE al_id = :al_id ORDER BY matricula_id DESC LIMIT 5"),
+        {"al_id": al_id}
+    ).fetchall()
+
+    grades_sample = db.execute(
+        text("SELECT id, matricula_id, materia, periodo, calificacion FROM SCE006 WHERE al_id = :al_id LIMIT 10"),
+        {"al_id": al_id}
+    ).fetchall()
+
+    return {
+        "al_id": al_id,
+        "nombre": student[1],
+        "enrollments": [dict(zip(["matricula_id","nivel","eg_grado","ciclo_escolar"], r)) for r in enrollments],
+        "grades_sample": [dict(zip(["id","matricula_id","materia","periodo","calificacion"], r)) for r in grades_sample],
+    }
 
 
 @router.post("/consulta", response_model=ConsultaResponse)
