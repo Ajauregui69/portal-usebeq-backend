@@ -28,7 +28,9 @@
       "Bash(az account show:*)",
       "Bash(az webapp config appsettings list:*)",
       "Bash(az webapp list:*)",
-      "Bash(az webapp config appsettings set:*)"
+      "Bash(az webapp config appsettings set:*)",
+      "WebFetch(domain:portal.usebeq.edu.mx)",
+      "Bash(wget:*)"
     ]
   }
 }

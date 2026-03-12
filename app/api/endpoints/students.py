@@ -19,39 +19,86 @@ router = APIRouter()
 
 
 @router.get("/my-students", response_model=List[StudentWithEnrollment])
-def get_my_students(
+async def get_my_students(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Get all students linked to current user
+    Get all students linked to current user.
+    At every call, validates and syncs student data against the USEBEQ external API.
     """
-    # Get student-parent relationships
     student_parents = db.query(StudentParent).filter(
         StudentParent.u_id == current_user.u_id
     ).all()
 
+    usebeq_service = USEBEQAPIService(db)
     students_data = []
+
     for sp in student_parents:
         student = db.query(Student).filter(Student.al_id == sp.al_id).first()
-        if student:
-            # Get latest enrollment
-            enrollment = db.query(Enrollment).filter(
-                Enrollment.al_id == student.al_id
-            ).order_by(Enrollment.ciclo_escolar.desc()).first()
+        if not student:
+            continue
 
-            student_dict = {
-                "al_id": student.al_id,
-                "al_curp": student.al_curp,
-                "al_nombre": student.al_nombre,
-                "al_appat": student.al_appat,
-                "al_apmat": student.al_apmat,
-                "al_estatus": student.al_estatus,
-                "al_fecing": student.al_fecing,
-                "al_fecnac": student.al_fecnac,
-                "current_enrollment": enrollment
-            }
-            students_data.append(student_dict)
+        # --- Sync with USEBEQ external API ---
+        try:
+            api_data = await usebeq_service.get_estudiante_by_id(student.al_id)
+
+            changes: dict = {}
+            if api_data.Nombre and api_data.Nombre != student.al_nombre:
+                changes["al_nombre"] = api_data.Nombre
+            if api_data.ApellidoPaterno and api_data.ApellidoPaterno != student.al_appat:
+                changes["al_appat"] = api_data.ApellidoPaterno
+            if api_data.ApellidoMaterno is not None and api_data.ApellidoMaterno != student.al_apmat:
+                changes["al_apmat"] = api_data.ApellidoMaterno
+
+            api_estatus = (api_data.Estatus or "").strip()
+            current_estatus = student.al_estatus.value if student.al_estatus else ""
+            if api_estatus and api_estatus != current_estatus:
+                try:
+                    changes["al_estatus"] = StudentStatus(api_estatus)
+                except ValueError:
+                    pass
+
+            if changes:
+                for field, value in changes.items():
+                    setattr(student, field, value)
+
+                # Also update pp_alumnos name fields if they are stored there
+                name_changes = {k: v for k, v in changes.items()
+                                if k in ("al_nombre", "al_appat", "al_apmat")}
+                if name_changes:
+                    set_clause = ", ".join(f"{k} = :{k}" for k in name_changes)
+                    try:
+                        db.execute(
+                            text(f"UPDATE pp_alumnos SET {set_clause} WHERE al_id = :al_id"),
+                            {**name_changes, "al_id": student.al_id}
+                        )
+                    except Exception:
+                        pass  # pp_alumnos may not have these columns in all environments
+
+                db.commit()
+                db.refresh(student)
+
+        except Exception:
+            # If the USEBEQ API is unavailable, proceed with existing local data
+            pass
+        # --- End sync ---
+
+        enrollment = db.query(Enrollment).filter(
+            Enrollment.al_id == student.al_id
+        ).order_by(Enrollment.ciclo_escolar.desc()).first()
+
+        students_data.append({
+            "al_id": student.al_id,
+            "al_curp": student.al_curp,
+            "al_nombre": student.al_nombre,
+            "al_appat": student.al_appat,
+            "al_apmat": student.al_apmat,
+            "al_estatus": student.al_estatus,
+            "al_fecing": student.al_fecing,
+            "al_fecnac": student.al_fecnac,
+            "current_enrollment": enrollment
+        })
 
     return students_data
 
@@ -248,23 +295,35 @@ async def link_student_with_cct(
         db.add(student_parent)
         db.commit()
 
-        # Detect potential siblings — same al_appat + al_apmat, different student
+        # Detect potential siblings — same non-empty al_appat + al_apmat, not already confirmed
         siblings_detected = []
         new_student_obj = db.query(Student).filter(Student.al_id == student_id).first()
-        if new_student_obj and new_student_obj.al_appat:
+        # Require BOTH last names to be non-empty before attempting sibling detection
+        if (new_student_obj
+                and new_student_obj.al_appat and new_student_obj.al_appat.strip()
+                and new_student_obj.al_apmat and new_student_obj.al_apmat.strip()):
             all_linked = db.query(StudentParent).filter(
                 StudentParent.u_id == current_user.u_id,
                 StudentParent.al_id != student_id
             ).all()
             for sp in all_linked:
                 other = db.query(Student).filter(Student.al_id == sp.al_id).first()
+                # Both students must have non-empty last names that match exactly
                 if (other
+                        and other.al_apmat and other.al_apmat.strip()
                         and other.al_appat == new_student_obj.al_appat
                         and other.al_apmat == new_student_obj.al_apmat):
-                    siblings_detected.append({
-                        "al_id": other.al_id,
-                        "nombre": f"{other.al_nombre} {other.al_appat}"
-                    })
+                    # Skip if sibling relationship already confirmed in pp_hermanos
+                    already_confirmed = db.execute(text(
+                        "SELECT h_id FROM pp_hermanos "
+                        "WHERE (al_id = :id1 AND her_id = :id2) "
+                        "OR (al_id = :id2 AND her_id = :id1)"
+                    ), {"id1": student_id, "id2": other.al_id}).fetchone()
+                    if not already_confirmed:
+                        siblings_detected.append({
+                            "al_id": other.al_id,
+                            "nombre": f"{other.al_nombre} {other.al_appat}"
+                        })
 
         return {
             "success": True,

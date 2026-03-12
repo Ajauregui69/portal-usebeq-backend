@@ -1,7 +1,10 @@
-from typing import Any, List
+from typing import Any, List, Optional
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from collections import defaultdict
+from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.api.dependencies.auth import get_current_active_user
@@ -11,6 +14,132 @@ from app.models.grade import Grade
 from app.schemas.grade import Grade as GradeSchema, GradesByPeriod
 
 router = APIRouter()
+
+
+# --- Schemas for public consulta ---
+class ConsultaRequest(BaseModel):
+    curp: str
+
+class ConsultaMateria(BaseModel):
+    materia: str
+    calif1: Optional[str] = None
+    calif2: Optional[str] = None
+    calif3: Optional[str] = None
+    promedio: Optional[str] = None
+
+class ConsultaComponente(BaseModel):
+    campo: str
+    nivel1: Optional[str] = None
+    nivel2: Optional[str] = None
+    nivel3: Optional[str] = None
+
+class ConsultaResponse(BaseModel):
+    curp: str
+    nivel: Optional[str] = None
+    grado: Optional[str] = None
+    ciclo: str
+    materias: List[ConsultaMateria]
+    componentes: List[ConsultaComponente]
+    observaciones: List[str]
+
+
+@router.post("/consulta", response_model=ConsultaResponse)
+def consulta_calificaciones(payload: ConsultaRequest, db: Session = Depends(get_db)) -> Any:
+    """
+    Consulta pública de calificaciones por CURP (sin autenticación).
+    Replica la funcionalidad de consulta.php / califica.php del portal anterior.
+    """
+    curp = payload.curp.strip().upper()
+
+    # 1. Buscar alumno por CURP
+    student = db.execute(
+        text("SELECT al_id, al_nombre, al_appat, al_apmat FROM SCE004 WHERE al_curp = :curp"),
+        {"curp": curp}
+    ).fetchone()
+
+    if not student:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No se encontró registro con la CURP proporcionada")
+
+    al_id = student[0]
+
+    # 2. Determinar ciclo escolar actual (misma lógica que el portal PHP)
+    now = datetime.now()
+    year = now.year
+    if now.month <= 8:
+        year -= 1
+    year2 = year + 1
+    ciclo = f"{year}-{year2}"
+
+    # 3. Obtener inscripción del ciclo actual
+    enrollment = db.execute(
+        text("SELECT pr_clave, eg_grado FROM SCE005 WHERE al_id = :al_id AND ce_inicic = :year ORDER BY matricula_id DESC LIMIT 1"),
+        {"al_id": al_id, "year": year}
+    ).fetchone()
+
+    nivel = enrollment[0].strip() if enrollment and enrollment[0] else None
+    grado = str(enrollment[1]) if enrollment and enrollment[1] else None
+
+    # 4. Obtener calificaciones desde SCE006
+    grades = db.query(Grade).filter(Grade.al_id == al_id).all()
+
+    # Construir materias agrupando periodos por nombre de materia
+    materias_dict: dict = {}
+    for g in grades:
+        mat = g.materia or ""
+        if mat not in materias_dict:
+            materias_dict[mat] = {"materia": mat, "calif1": None, "calif2": None, "calif3": None, "promedio": None}
+        periodo = (g.periodo or "").lower()
+        calificacion = str(g.calificacion) if g.calificacion is not None else None
+        if "1" in periodo or "primer" in periodo:
+            materias_dict[mat]["calif1"] = calificacion
+        elif "2" in periodo or "segund" in periodo:
+            materias_dict[mat]["calif2"] = calificacion
+        elif "3" in periodo or "tercer" in periodo:
+            materias_dict[mat]["calif3"] = calificacion
+
+    materias = [ConsultaMateria(**v) for v in materias_dict.values()]
+
+    # 5. Obtener componentes curriculares (SCE044)
+    componentes_rows = []
+    try:
+        componentes_rows = db.execute(
+            text("SELECT cm_descrip, cc_nivel1, cc_nivel2, cc_nivel3 FROM SCE044 WHERE al_id = :al_id AND ce_inicic = :year"),
+            {"al_id": al_id, "year": year}
+        ).fetchall()
+    except Exception:
+        pass  # La tabla SCE044 puede no existir en esta BD
+
+    componentes = [
+        ConsultaComponente(
+            campo=row[0] or "",
+            nivel1=row[1].strip() if row[1] else None,
+            nivel2=row[2].strip() if row[2] else None,
+            nivel3=row[3].strip() if row[3] else None,
+        )
+        for row in componentes_rows
+        if row[1] is not None
+    ]
+
+    # 6. Observaciones
+    observaciones = []
+    for m in materias:
+        if m.calif1 == "1" or m.calif1 == "-":
+            observaciones.append("- Información insuficiente, al registrar una comunicación y participación intermitente.")
+            break
+    for m in materias:
+        if m.calif1 == "2" or m.calif1 == "- -":
+            observaciones.append("- - Sin información, al registrar una comunicación prácticamente inexistente.")
+            break
+
+    return ConsultaResponse(
+        curp=curp,
+        nivel=nivel,
+        grado=grado,
+        ciclo=ciclo,
+        materias=materias,
+        componentes=componentes,
+        observaciones=observaciones,
+    )
 
 
 @router.get("/student/{student_id}", response_model=List[GradesByPeriod])

@@ -5,8 +5,6 @@ from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from google_auth_oauthlib.flow import Flow
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.discovery import build
 
 from app.core.config import settings
@@ -23,7 +21,6 @@ router = APIRouter()
 GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
-    "https://www.googleapis.com/auth/gmail.send",
     "openid"
 ]
 

@@ -46,9 +46,8 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str | None = None
     GOOGLE_REDIRECT_URI: str | None = None
 
-    # Google System Account (for sending system emails via Gmail API)
-    GOOGLE_SYSTEM_REFRESH_TOKEN: str | None = None
-    GOOGLE_SYSTEM_EMAIL: str | None = None
+    # SendGrid (for transactional emails)
+    SENDGRID_API_KEY: str | None = None
 
     # Frontend URL (for OAuth redirects)
     FRONTEND_URL: str = "https://jolly-coast-03240f610.4.azurestaticapps.net"
