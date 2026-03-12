@@ -62,25 +62,35 @@ def consulta_calificaciones(payload: ConsultaRequest, db: Session = Depends(get_
 
     al_id = student[0]
 
-    # 2. Determinar ciclo escolar actual (misma lógica que el portal PHP)
+    # 2. Determinar ciclo escolar actual (meses 1-8 → año anterior, meses 9-12 → año actual)
     now = datetime.now()
-    year = now.year
-    if now.month <= 8:
-        year -= 1
-    year2 = year + 1
-    ciclo = f"{year}-{year2}"
+    year = now.year if now.month >= 9 else now.year - 1
+    ciclo = f"{year}-{year + 1}"
 
-    # 3. Obtener inscripción del ciclo actual
+    # 3. Obtener la inscripción más reciente del ciclo actual (columnas reales de SCE005)
     enrollment = db.execute(
-        text("SELECT pr_clave, eg_grado FROM SCE005 WHERE al_id = :al_id AND ce_inicic = :year ORDER BY matricula_id DESC LIMIT 1"),
-        {"al_id": al_id, "year": year}
+        text("""
+            SELECT nivel, eg_grado, matricula_id
+            FROM SCE005
+            WHERE al_id = :al_id AND ciclo_escolar LIKE :ciclo
+            ORDER BY matricula_id DESC
+            LIMIT 1
+        """),
+        {"al_id": al_id, "ciclo": f"{year}%"}
     ).fetchone()
 
     nivel = enrollment[0].strip() if enrollment and enrollment[0] else None
     grado = str(enrollment[1]) if enrollment and enrollment[1] else None
+    matricula_id = enrollment[2] if enrollment else None
 
-    # 4. Obtener calificaciones desde SCE006
-    grades = db.query(Grade).filter(Grade.al_id == al_id).all()
+    # 4. Obtener calificaciones del ciclo actual (filtrando por matricula_id si existe)
+    if matricula_id:
+        grades = db.query(Grade).filter(
+            Grade.al_id == al_id,
+            Grade.matricula_id == matricula_id
+        ).all()
+    else:
+        grades = db.query(Grade).filter(Grade.al_id == al_id).all()
 
     # Construir materias agrupando periodos por nombre de materia
     materias_dict: dict = {}
@@ -99,15 +109,19 @@ def consulta_calificaciones(payload: ConsultaRequest, db: Session = Depends(get_
 
     materias = [ConsultaMateria(**v) for v in materias_dict.values()]
 
-    # 5. Obtener componentes curriculares (SCE044)
+    # 5. Obtener componentes curriculares (SCE044) — silencioso si la tabla no existe
     componentes_rows = []
     try:
         componentes_rows = db.execute(
-            text("SELECT cm_descrip, cc_nivel1, cc_nivel2, cc_nivel3 FROM SCE044 WHERE al_id = :al_id AND ce_inicic = :year"),
-            {"al_id": al_id, "year": year}
+            text("""
+                SELECT cm_descrip, cc_nivel1, cc_nivel2, cc_nivel3
+                FROM SCE044
+                WHERE al_id = :al_id AND ciclo_escolar LIKE :ciclo
+            """),
+            {"al_id": al_id, "ciclo": f"{year}%"}
         ).fetchall()
     except Exception:
-        pass  # La tabla SCE044 puede no existir en esta BD
+        pass
 
     componentes = [
         ConsultaComponente(
@@ -123,11 +137,11 @@ def consulta_calificaciones(payload: ConsultaRequest, db: Session = Depends(get_
     # 6. Observaciones
     observaciones = []
     for m in materias:
-        if m.calif1 == "1" or m.calif1 == "-":
+        if m.calif1 in ("1", "-"):
             observaciones.append("- Información insuficiente, al registrar una comunicación y participación intermitente.")
             break
     for m in materias:
-        if m.calif1 == "2" or m.calif1 == "- -":
+        if m.calif1 in ("2", "- -"):
             observaciones.append("- - Sin información, al registrar una comunicación prácticamente inexistente.")
             break
 
