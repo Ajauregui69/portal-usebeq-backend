@@ -45,34 +45,55 @@ class ConsultaResponse(BaseModel):
 
 @router.post("/consulta-debug")
 def consulta_debug(payload: ConsultaRequest, db: Session = Depends(get_db)) -> Any:
-    """Debug endpoint — exposes raw DB data. Remove after debugging."""
+    """Debug endpoint — tests DB queries for consulta. Remove after debugging."""
+    from datetime import datetime as dt
     curp = payload.curp.strip().upper()
+    now = dt.now()
+    year = now.year if now.month >= 9 else now.year - 1
 
-    student = db.execute(
-        text("SELECT al_id, al_nombre FROM SCE004 WHERE al_curp = :curp"),
-        {"curp": curp}
-    ).fetchone()
-    if not student:
-        return {"error": "CURP not found"}
+    result = {}
 
-    al_id = student[0]
+    # Test 1: SCE004 lookup
+    try:
+        student = db.execute(text("SELECT al_id, al_nombre FROM SCE004 WHERE al_curp = :curp"), {"curp": curp}).fetchone()
+        result["sce004"] = {"al_id": student[0], "nombre": student[1]} if student else None
+    except Exception as e:
+        result["sce004_error"] = str(e)
 
-    enrollments = db.execute(
-        text("SELECT matricula_id, nivel, eg_grado, ciclo_escolar FROM SCE005 WHERE al_id = :al_id ORDER BY matricula_id DESC LIMIT 5"),
-        {"al_id": al_id}
-    ).fetchall()
+    if not result.get("sce004"):
+        return result
 
-    grades_sample = db.execute(
-        text("SELECT id, matricula_id, materia, periodo, calificacion FROM SCE006 WHERE al_id = :al_id LIMIT 10"),
-        {"al_id": al_id}
-    ).fetchall()
+    al_id = result["sce004"]["al_id"]
 
-    return {
-        "al_id": al_id,
-        "nombre": student[1],
-        "enrollments": [dict(zip(["matricula_id","nivel","eg_grado","ciclo_escolar"], r)) for r in enrollments],
-        "grades_sample": [dict(zip(["id","matricula_id","materia","periodo","calificacion"], r)) for r in grades_sample],
-    }
+    # Test 2: SCE005 with PHP column names (SQL Server)
+    try:
+        r = db.execute(text("SELECT TOP(1) pr_clave, eg_grado FROM SCE005 WHERE al_id = :al_id AND ce_inicic = :year"), {"al_id": al_id, "year": year}).fetchone()
+        result["sce005_sqlserver"] = dict(zip(["pr_clave","eg_grado"], r)) if r else None
+    except Exception as e:
+        result["sce005_sqlserver_error"] = str(e)
+
+    # Test 3: SCE005 with ORM column names (MySQL)
+    try:
+        r = db.execute(text("SELECT nivel, eg_grado, ciclo_escolar FROM SCE005 WHERE al_id = :al_id ORDER BY matricula_id DESC LIMIT 1"), {"al_id": al_id}).fetchone()
+        result["sce005_mysql"] = dict(zip(["nivel","eg_grado","ciclo_escolar"], r)) if r else None
+    except Exception as e:
+        result["sce005_mysql_error"] = str(e)
+
+    # Test 4: Stored procedure
+    try:
+        rows = db.execute(text("EXEC sce2018.[dbo].[spr_GetCalificaciones] @AL_ID = :al_id, @ciclo = :year"), {"al_id": al_id, "year": year}).fetchall()
+        result["stored_proc"] = [dict(zip(r.keys(), r)) for r in rows[:3]] if rows else []
+    except Exception as e:
+        result["stored_proc_error"] = str(e)
+
+    # Test 5: dbo.SCE006 (used in students.py)
+    try:
+        rows = db.execute(text("SELECT TOP(5) * FROM dbo.SCE006 WHERE al_id = :al_id"), {"al_id": al_id}).fetchall()
+        result["dbo_sce006"] = [list(r) for r in rows]
+    except Exception as e:
+        result["dbo_sce006_error"] = str(e)
+
+    return result
 
 
 @router.post("/consulta", response_model=ConsultaResponse)
