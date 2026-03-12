@@ -47,8 +47,7 @@ async def google_login(request: Request):
     flow = get_google_flow()
     authorization_url, state = flow.authorization_url(
         access_type="offline",
-        prompt="consent",
-        include_granted_scopes="true"
+        prompt="consent"
     )
     request.session["state"] = state
     # Persist code_verifier (PKCE) so the callback can reuse it
