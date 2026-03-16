@@ -43,6 +43,7 @@ async def get_my_students(
         try:
             api_data = await usebeq_service.get_estudiante_by_id(student.al_id)
 
+            # Sync SCE004 (student basic data)
             changes: dict = {}
             if api_data.Nombre and api_data.Nombre != student.al_nombre:
                 changes["al_nombre"] = api_data.Nombre
@@ -78,6 +79,28 @@ async def get_my_students(
 
                 db.commit()
                 db.refresh(student)
+
+            # Sync SCE005 (enrollment data: CCT, grado, grupo, turno)
+            latest_enrollment = db.query(Enrollment).filter(
+                Enrollment.al_id == student.al_id
+            ).order_by(Enrollment.ciclo_escolar.desc()).first()
+
+            if latest_enrollment:
+                enrollment_changes = {}
+                if api_data.CCT and api_data.CCT.strip() != (latest_enrollment.clavecct or "").strip():
+                    enrollment_changes["clavecct"] = api_data.CCT.strip()
+                if api_data.Grado and api_data.Grado.strip() != (latest_enrollment.eg_grado or "").strip():
+                    enrollment_changes["eg_grado"] = api_data.Grado.strip()
+                if api_data.Grupo and api_data.Grupo.strip() != (latest_enrollment.eg_grupo or "").strip():
+                    enrollment_changes["eg_grupo"] = api_data.Grupo.strip()
+                if api_data.Turno and api_data.Turno.strip() != (latest_enrollment.turno or "").strip():
+                    enrollment_changes["turno"] = api_data.Turno.strip()
+
+                if enrollment_changes:
+                    for field, value in enrollment_changes.items():
+                        setattr(latest_enrollment, field, value)
+                    db.commit()
+                    db.refresh(latest_enrollment)
 
         except Exception:
             # If the USEBEQ API is unavailable, proceed with existing local data
@@ -376,6 +399,31 @@ def unlink_student(
     db.commit()
 
     return {"message": "Student unlinked successfully"}
+
+
+@router.get("/siblings-count")
+def get_siblings_count(
+    *,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """
+    Returns the number of confirmed sibling pairs for the current user's students.
+    """
+    student_ids = [
+        sp.al_id for sp in db.query(StudentParent).filter(
+            StudentParent.u_id == current_user.u_id
+        ).all()
+    ]
+    if not student_ids:
+        return {"count": 0}
+
+    placeholders = ",".join(str(i) for i in student_ids)
+    count = db.execute(text(
+        f"SELECT COUNT(*) FROM pp_hermanos "
+        f"WHERE al_id IN ({placeholders}) OR her_id IN ({placeholders})"
+    )).scalar()
+    return {"count": count or 0}
 
 
 @router.post("/confirm-sibling")
