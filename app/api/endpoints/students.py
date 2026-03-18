@@ -27,14 +27,38 @@ async def get_my_students(
     Get all students linked to current user.
     At every call, validates and syncs student data against the USEBEQ external API.
     """
+    # Query by u_id (new system via ORM)
     student_parents = db.query(StudentParent).filter(
         StudentParent.u_id == current_user.u_id
     ).all()
+    student_ids = {sp.al_id for sp in student_parents}
+
+    # Also query by email columns (legacy PHP portal: padre/madre/tutor)
+    try:
+        email_rows = db.execute(text(
+            "SELECT al_id FROM pp_alumnos "
+            "WHERE padre = :correo OR madre = :correo OR tutor = :correo"
+        ), {"correo": current_user.u_correo}).fetchall()
+        for row in email_rows:
+            student_ids.add(row[0])
+    except Exception:
+        pass  # Table may not have these columns in all environments
+
+    # Build a unified list of StudentParent-like objects from all al_ids
+    all_student_links = [sp for sp in student_parents]
+    legacy_ids = student_ids - {sp.al_id for sp in student_parents}
+    for al_id in legacy_ids:
+        # Create a lightweight proxy so the loop below works uniformly
+        class _Link:
+            pass
+        link = _Link()
+        link.al_id = al_id
+        all_student_links.append(link)
 
     usebeq_service = USEBEQAPIService(db)
     students_data = []
 
-    for sp in student_parents:
+    for sp in all_student_links:
         student = db.query(Student).filter(Student.al_id == sp.al_id).first()
         if not student:
             continue
@@ -320,33 +344,36 @@ async def link_student_with_cct(
 
         # Detect potential siblings — same non-empty al_appat + al_apmat, not already confirmed
         siblings_detected = []
-        new_student_obj = db.query(Student).filter(Student.al_id == student_id).first()
-        # Require BOTH last names to be non-empty before attempting sibling detection
-        if (new_student_obj
-                and new_student_obj.al_appat and new_student_obj.al_appat.strip()
-                and new_student_obj.al_apmat and new_student_obj.al_apmat.strip()):
-            all_linked = db.query(StudentParent).filter(
-                StudentParent.u_id == current_user.u_id,
-                StudentParent.al_id != student_id
-            ).all()
-            for sp in all_linked:
-                other = db.query(Student).filter(Student.al_id == sp.al_id).first()
-                # Both students must have non-empty last names that match exactly
-                if (other
-                        and other.al_apmat and other.al_apmat.strip()
-                        and other.al_appat == new_student_obj.al_appat
-                        and other.al_apmat == new_student_obj.al_apmat):
-                    # Skip if sibling relationship already confirmed in pp_hermanos
-                    already_confirmed = db.execute(text(
-                        "SELECT h_id FROM pp_hermanos "
-                        "WHERE (al_id = :id1 AND her_id = :id2) "
-                        "OR (al_id = :id2 AND her_id = :id1)"
-                    ), {"id1": student_id, "id2": other.al_id}).fetchone()
-                    if not already_confirmed:
-                        siblings_detected.append({
-                            "al_id": other.al_id,
-                            "nombre": f"{other.al_nombre} {other.al_appat}"
-                        })
+        try:
+            new_student_obj = db.query(Student).filter(Student.al_id == student_id).first()
+            # Require BOTH last names to be non-empty before attempting sibling detection
+            if (new_student_obj
+                    and new_student_obj.al_appat and new_student_obj.al_appat.strip()
+                    and new_student_obj.al_apmat and new_student_obj.al_apmat.strip()):
+                all_linked = db.query(StudentParent).filter(
+                    StudentParent.u_id == current_user.u_id,
+                    StudentParent.al_id != student_id
+                ).all()
+                for sp in all_linked:
+                    other = db.query(Student).filter(Student.al_id == sp.al_id).first()
+                    # Both students must have non-empty last names that match exactly
+                    if (other
+                            and other.al_apmat and other.al_apmat.strip()
+                            and other.al_appat == new_student_obj.al_appat
+                            and other.al_apmat == new_student_obj.al_apmat):
+                        # Skip if sibling relationship already confirmed in pp_hermanos
+                        already_confirmed = db.execute(text(
+                            "SELECT h_id FROM pp_hermanos "
+                            "WHERE (al_id = :id1 AND her_id = :id2) "
+                            "OR (al_id = :id2 AND her_id = :id1)"
+                        ), {"id1": student_id, "id2": other.al_id}).fetchone()
+                        if not already_confirmed:
+                            siblings_detected.append({
+                                "al_id": other.al_id,
+                                "nombre": f"{other.al_nombre} {other.al_appat}"
+                            })
+        except Exception:
+            pass  # If pp_hermanos table doesn't exist yet, skip sibling detection
 
         return {
             "success": True,
@@ -419,10 +446,13 @@ def get_siblings_count(
         return {"count": 0}
 
     placeholders = ",".join(str(i) for i in student_ids)
-    count = db.execute(text(
-        f"SELECT COUNT(*) FROM pp_hermanos "
-        f"WHERE al_id IN ({placeholders}) OR her_id IN ({placeholders})"
-    )).scalar()
+    try:
+        count = db.execute(text(
+            f"SELECT COUNT(*) FROM pp_hermanos "
+            f"WHERE al_id IN ({placeholders}) OR her_id IN ({placeholders})"
+        )).scalar()
+    except Exception:
+        count = 0
     return {"count": count or 0}
 
 
