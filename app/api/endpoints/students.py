@@ -499,10 +499,10 @@ def confirm_sibling(
 
     def get_enrollment(student_id):
         return db.execute(text("""
-            SELECT dbo.SCE002.clavecct, dbo.SCE002.eg_grado, dbo.SCE002.eg_grupo
-            FROM dbo.SCE002
-            INNER JOIN dbo.SCE006 ON dbo.SCE002.eg_id = dbo.SCE006.eg_id
-            WHERE dbo.SCE006.al_id = :al_id AND dbo.SCE002.ce_inicic = :year
+            SELECT SCE002.clavecct, SCE002.eg_grado, SCE002.eg_grupo
+            FROM SCE002
+            INNER JOIN SCE006 ON SCE002.eg_id = SCE006.eg_id
+            WHERE SCE006.al_id = :al_id AND SCE002.ce_inicic = :year
         """), {"al_id": student_id, "year": str(year)}).fetchone()
 
     s1_info = get_enrollment(al_id)
@@ -667,20 +667,20 @@ def add_student_to_account(
 
     # Student doesn't exist in pp_alumnos, search in SCE004
     search_query = text("""
-        SELECT dbo.SCE004.al_curp, dbo.SCE004.al_appat, dbo.SCE004.al_apmat,
-               dbo.SCE004.al_nombre, dbo.SCE004.al_id, dbo.SCE002.eg_grado,
-               dbo.SCE002.clavecct, dbo.SCE002.eg_grupo
-        FROM dbo.SCE002
-        INNER JOIN dbo.SCE006 ON dbo.SCE002.eg_id = dbo.SCE006.eg_id
-        INNER JOIN dbo.SCE004 ON dbo.SCE006.al_id = dbo.SCE004.al_id
-        WHERE dbo.SCE004.al_curp = :curp
-        AND dbo.SCE004.al_appat = :apellido
-        AND dbo.SCE002.clavecct = :cct
-        AND dbo.SCE002.eg_grupo = :grupo
-        AND dbo.SCE004.al_estatus IN ('I', 'A', 'E', 'B')
-        GROUP BY dbo.SCE004.al_curp, dbo.SCE004.al_appat, dbo.SCE004.al_apmat,
-                 dbo.SCE004.al_nombre, dbo.SCE004.al_id, dbo.SCE002.eg_grado,
-                 dbo.SCE002.clavecct, dbo.SCE002.eg_grupo
+        SELECT SCE004.al_curp, SCE004.al_appat, SCE004.al_apmat,
+               SCE004.al_nombre, SCE004.al_id, SCE002.eg_grado,
+               SCE002.clavecct, SCE002.eg_grupo
+        FROM SCE002
+        INNER JOIN SCE006 ON SCE002.eg_id = SCE006.eg_id
+        INNER JOIN SCE004 ON SCE006.al_id = SCE004.al_id
+        WHERE SCE004.al_curp = :curp
+        AND SCE004.al_appat = :apellido
+        AND SCE002.clavecct = :cct
+        AND SCE002.eg_grupo = :grupo
+        AND SCE004.al_estatus IN ('I', 'A', 'E', 'B')
+        GROUP BY SCE004.al_curp, SCE004.al_appat, SCE004.al_apmat,
+                 SCE004.al_nombre, SCE004.al_id, SCE002.eg_grado,
+                 SCE002.clavecct, SCE002.eg_grupo
     """)
 
     result = db.execute(search_query, {
@@ -733,13 +733,13 @@ def add_student_to_account(
         if apellido == linked_appat and al_apmat == linked_apmat:
             # Get linked student current info
             linked_info_query = text("""
-                SELECT dbo.SCE004.al_curp, dbo.SCE002.eg_grado, dbo.SCE002.eg_grupo,
-                       dbo.SCE002.clavecct
-                FROM dbo.SCE002
-                INNER JOIN dbo.SCE006 ON dbo.SCE002.eg_id = dbo.SCE006.eg_id
-                INNER JOIN dbo.SCE004 ON dbo.SCE006.al_id = dbo.SCE004.al_id
-                WHERE dbo.SCE004.al_id = :al_id
-                AND dbo.SCE002.ce_inicic = :year
+                SELECT SCE004.al_curp, SCE002.eg_grado, SCE002.eg_grupo,
+                       SCE002.clavecct
+                FROM SCE002
+                INNER JOIN SCE006 ON SCE002.eg_id = SCE006.eg_id
+                INNER JOIN SCE004 ON SCE006.al_id = SCE004.al_id
+                WHERE SCE004.al_id = :al_id
+                AND SCE002.ce_inicic = :year
             """)
 
             linked_info = db.execute(linked_info_query, {
@@ -831,11 +831,11 @@ def get_student_teachers(
 
     # Get student's current group
     group_query = text("""
-        SELECT dbo.SCE002.eg_id, dbo.SCE002.eg_grado, dbo.SCE002.eg_grupo,
-               dbo.SCE002.clavecct, dbo.SCE002.nombrect, dbo.SCE002.turno
-        FROM dbo.SCE002
-        INNER JOIN dbo.SCE006 ON dbo.SCE002.eg_id = dbo.SCE006.eg_id
-        WHERE dbo.SCE006.al_id = :student_id
+        SELECT SCE002.eg_id, SCE002.eg_grado, SCE002.eg_grupo,
+               SCE002.clavecct, SCE002.nombrect, SCE002.turno
+        FROM SCE002
+        INNER JOIN SCE006 ON SCE002.eg_id = SCE006.eg_id
+        WHERE SCE006.al_id = :student_id
     """)
 
     group_info = db.execute(group_query, {"student_id": student_id}).fetchone()
@@ -852,16 +852,16 @@ def get_student_teachers(
     # Get teachers for this group
     teachers_query = text("""
         SELECT DISTINCT
-            dbo.SCE034.ma_nombre,
-            dbo.SCE034.ma_appat,
-            dbo.SCE034.ma_apmat,
-            dbo.SCE035.as_nombre as materia,
-            dbo.SCE034.ma_correo
-        FROM dbo.SCE023
-        INNER JOIN dbo.SCE034 ON dbo.SCE023.ma_id = dbo.SCE034.ma_id
-        INNER JOIN dbo.SCE035 ON dbo.SCE023.as_id = dbo.SCE035.as_id
-        WHERE dbo.SCE023.eg_id = :eg_id
-        ORDER BY dbo.SCE035.as_nombre
+            SCE034.ma_nombre,
+            SCE034.ma_appat,
+            SCE034.ma_apmat,
+            SCE035.as_nombre as materia,
+            SCE034.ma_correo
+        FROM SCE023
+        INNER JOIN SCE034 ON SCE023.ma_id = SCE034.ma_id
+        INNER JOIN SCE035 ON SCE023.as_id = SCE035.as_id
+        WHERE SCE023.eg_id = :eg_id
+        ORDER BY SCE035.as_nombre
     """)
 
     teachers_result = db.execute(teachers_query, {"eg_id": eg_id}).fetchall()
