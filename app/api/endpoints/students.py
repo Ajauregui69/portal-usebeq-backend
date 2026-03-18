@@ -27,39 +27,20 @@ async def get_my_students(
     Get all students linked to current user.
     At every call, validates and syncs student data against the USEBEQ external API.
     """
-    # Query by u_id (new system via ORM)
-    student_parents = db.query(StudentParent).filter(
-        StudentParent.u_id == current_user.u_id
-    ).all()
-    student_ids = {sp.al_id for sp in student_parents}
+    correo = current_user.u_correo
 
-    # Also query by email columns (legacy PHP portal: padre/madre/tutor)
-    try:
-        email_rows = db.execute(text(
-            "SELECT al_id FROM pp_alumnos "
-            "WHERE padre = :correo OR madre = :correo OR tutor = :correo"
-        ), {"correo": current_user.u_correo}).fetchall()
-        for row in email_rows:
-            student_ids.add(row[0])
-    except Exception:
-        pass  # Table may not have these columns in all environments
-
-    # Build a unified list of StudentParent-like objects from all al_ids
-    all_student_links = [sp for sp in student_parents]
-    legacy_ids = student_ids - {sp.al_id for sp in student_parents}
-    for al_id in legacy_ids:
-        # Create a lightweight proxy so the loop below works uniformly
-        class _Link:
-            pass
-        link = _Link()
-        link.al_id = al_id
-        all_student_links.append(link)
+    # Query pp_alumnos using email columns (real schema: padre/madre/tutor)
+    rows = db.execute(text(
+        "SELECT al_id FROM pp_alumnos "
+        "WHERE padre = :correo OR madre = :correo OR tutor = :correo"
+    ), {"correo": correo}).fetchall()
+    student_ids = list({row[0] for row in rows})
 
     usebeq_service = USEBEQAPIService(db)
     students_data = []
 
-    for sp in all_student_links:
-        student = db.query(Student).filter(Student.al_id == sp.al_id).first()
+    for al_id in student_ids:
+        student = db.query(Student).filter(Student.al_id == al_id).first()
         if not student:
             continue
 
@@ -172,10 +153,10 @@ async def link_student(
 
     if local_student:
         # Student exists locally, check if already linked
-        existing = db.query(StudentParent).filter(
-            StudentParent.al_id == local_student.al_id,
-            StudentParent.u_id == current_user.u_id
-        ).first()
+        existing = db.execute(text(
+            "SELECT al_id FROM pp_alumnos WHERE al_id = :al_id "
+            "AND (padre = :correo OR madre = :correo OR tutor = :correo)"
+        ), {"al_id": local_student.al_id, "correo": current_user.u_correo}).fetchone()
 
         if existing:
             raise HTTPException(
@@ -183,13 +164,20 @@ async def link_student(
                 detail="Este estudiante ya esta vinculado a tu cuenta"
             )
 
-        # Link existing student
-        student_parent = StudentParent(
-            al_id=local_student.al_id,
-            u_id=current_user.u_id,
-            relacion=student_in.relacion
-        )
-        db.add(student_parent)
+        # Link existing student using email-based schema
+        rel = student_in.relacion.lower()
+        db.execute(text(
+            f"INSERT INTO pp_alumnos (al_id, al_curp, al_appat, al_apmat, al_nombre, "
+            f"fecha_alta, estatus, {rel}) "
+            f"VALUES (:al_id, :curp, :appat, :apmat, :nombre, CURDATE(), 'A', :correo)"
+        ), {
+            "al_id": local_student.al_id,
+            "curp": local_student.al_curp,
+            "appat": local_student.al_appat,
+            "apmat": local_student.al_apmat or "",
+            "nombre": local_student.al_nombre,
+            "correo": current_user.u_correo,
+        })
         db.commit()
 
         return {
@@ -308,10 +296,10 @@ async def link_student_with_cct(
             student_id = estudiante_data.IdAlumno
 
         # Check if already linked to this user
-        existing = db.query(StudentParent).filter(
-            StudentParent.al_id == student_id,
-            StudentParent.u_id == current_user.u_id
-        ).first()
+        existing = db.execute(text(
+            "SELECT al_id FROM pp_alumnos WHERE al_id = :al_id "
+            "AND (padre = :correo OR madre = :correo OR tutor = :correo)"
+        ), {"al_id": student_id, "correo": current_user.u_correo}).fetchone()
 
         if existing:
             raise HTTPException(
@@ -320,12 +308,11 @@ async def link_student_with_cct(
             )
 
         # Check if same relacion already taken by another user
-        existing_relacion = db.query(StudentParent).filter(
-            StudentParent.al_id == student_id,
-            StudentParent.relacion == relacion
-        ).first()
+        existing_relacion = db.execute(text(
+            f"SELECT {relacion} FROM pp_alumnos WHERE al_id = :al_id AND {relacion} IS NOT NULL"
+        ), {"al_id": student_id}).fetchone()
 
-        if existing_relacion and existing_relacion.u_id != current_user.u_id:
+        if existing_relacion and existing_relacion[0] != current_user.u_correo:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"El parentesco {relacion.upper()} ya ha sido vinculado al estudiante con otra cuenta. "
@@ -333,13 +320,28 @@ async def link_student_with_cct(
                        "En caso de necesitar apoyo puedes escribir a: epena@usebeq.edu.mx"
             )
 
-        # Create link between parent and student
-        student_parent = StudentParent(
-            al_id=student_id,
-            u_id=current_user.u_id,
-            relacion=relacion
-        )
-        db.add(student_parent)
+        # Create link between parent and student using email-based schema
+        existing_row = db.execute(text(
+            "SELECT al_id FROM pp_alumnos WHERE al_id = :al_id"
+        ), {"al_id": student_id}).fetchone()
+
+        if existing_row:
+            db.execute(text(
+                f"UPDATE pp_alumnos SET {relacion} = :correo WHERE al_id = :al_id"
+            ), {"correo": current_user.u_correo, "al_id": student_id})
+        else:
+            db.execute(text(
+                f"INSERT INTO pp_alumnos (al_id, al_curp, al_appat, al_apmat, al_nombre, "
+                f"fecha_alta, estatus, {relacion}) "
+                f"VALUES (:al_id, :curp, :appat, :apmat, :nombre, CURDATE(), 'A', :correo)"
+            ), {
+                "al_id": student_id,
+                "curp": estudiante_data.CURP,
+                "appat": estudiante_data.ApellidoPaterno,
+                "apmat": estudiante_data.ApellidoMaterno or "",
+                "nombre": estudiante_data.Nombre,
+                "correo": current_user.u_correo,
+            })
         db.commit()
 
         # Detect potential siblings — same non-empty al_appat + al_apmat, not already confirmed
@@ -350,12 +352,12 @@ async def link_student_with_cct(
             if (new_student_obj
                     and new_student_obj.al_appat and new_student_obj.al_appat.strip()
                     and new_student_obj.al_apmat and new_student_obj.al_apmat.strip()):
-                all_linked = db.query(StudentParent).filter(
-                    StudentParent.u_id == current_user.u_id,
-                    StudentParent.al_id != student_id
-                ).all()
-                for sp in all_linked:
-                    other = db.query(Student).filter(Student.al_id == sp.al_id).first()
+                linked_rows = db.execute(text(
+                    "SELECT al_id FROM pp_alumnos WHERE al_id != :sid "
+                    "AND (padre = :correo OR madre = :correo OR tutor = :correo)"
+                ), {"sid": student_id, "correo": current_user.u_correo}).fetchall()
+                for linked_row in linked_rows:
+                    other = db.query(Student).filter(Student.al_id == linked_row[0]).first()
                     # Both students must have non-empty last names that match exactly
                     if (other
                             and other.al_apmat and other.al_apmat.strip()
@@ -411,18 +413,28 @@ def unlink_student(
     """
     Unlink a student from current user account
     """
-    student_parent = db.query(StudentParent).filter(
-        StudentParent.al_id == student_id,
-        StudentParent.u_id == current_user.u_id
-    ).first()
+    correo = current_user.u_correo
 
-    if not student_parent:
+    # Check if this student is linked to the user
+    row = db.execute(text(
+        "SELECT al_id FROM pp_alumnos WHERE al_id = :al_id "
+        "AND (padre = :correo OR madre = :correo OR tutor = :correo)"
+    ), {"al_id": student_id, "correo": correo}).fetchone()
+
+    if not row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Vinculacion de estudiante no encontrada"
         )
 
-    db.delete(student_parent)
+    # Remove the user's email from all relacion columns for this student
+    db.execute(text(
+        "UPDATE pp_alumnos SET "
+        "padre = CASE WHEN padre = :correo THEN NULL ELSE padre END, "
+        "madre = CASE WHEN madre = :correo THEN NULL ELSE madre END, "
+        "tutor = CASE WHEN tutor = :correo THEN NULL ELSE tutor END "
+        "WHERE al_id = :al_id"
+    ), {"correo": correo, "al_id": student_id})
     db.commit()
 
     return {"message": "Student unlinked successfully"}
@@ -437,11 +449,11 @@ def get_siblings_count(
     """
     Returns the number of confirmed sibling pairs for the current user's students.
     """
-    student_ids = [
-        sp.al_id for sp in db.query(StudentParent).filter(
-            StudentParent.u_id == current_user.u_id
-        ).all()
-    ]
+    rows = db.execute(text(
+        "SELECT al_id FROM pp_alumnos "
+        "WHERE padre = :correo OR madre = :correo OR tutor = :correo"
+    ), {"correo": current_user.u_correo}).fetchall()
+    student_ids = [row[0] for row in rows]
     if not student_ids:
         return {"count": 0}
 
@@ -471,17 +483,18 @@ def confirm_sibling(
     from sqlalchemy import text
     from datetime import datetime
 
-    # Verify both students belong to this user
-    s1_link = db.query(StudentParent).filter(
-        StudentParent.al_id == al_id,
-        StudentParent.u_id == current_user.u_id
-    ).first()
-    s2_link = db.query(StudentParent).filter(
-        StudentParent.al_id == her_id,
-        StudentParent.u_id == current_user.u_id
-    ).first()
+    correo = current_user.u_correo
 
-    if not s1_link or not s2_link:
+    # Verify both students belong to this user (compatible with email-based schema)
+    def student_belongs_to_user(sid):
+        row = db.execute(text(
+            "SELECT al_id FROM pp_alumnos "
+            "WHERE al_id = :al_id "
+            "AND (padre = :correo OR madre = :correo OR tutor = :correo)"
+        ), {"al_id": sid, "correo": correo}).fetchone()
+        return row is not None
+
+    if not student_belongs_to_user(al_id) or not student_belongs_to_user(her_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Uno o ambos estudiantes no están vinculados a tu cuenta"
