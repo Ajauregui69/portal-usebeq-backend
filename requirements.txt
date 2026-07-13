@@ -24,3 +24,4 @@ google-auth-oauthlib
 google-auth-httplib2
 apscheduler==3.10.4
 beautifulsoup4==4.12.3
+itsdangerous==2.2.0
