@@ -2,7 +2,7 @@ from typing import Any
 from datetime import datetime, date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, text
+from sqlalchemy import desc
 
 from app.core.database import get_db
 from app.models.certificate import (
@@ -122,22 +122,12 @@ def check_existing_request(db: Session, curp: str, tipo_tramite: TipoTramite) ->
 
 def check_duplicate_in_system(db: Session, curp: str, cct: str, ciclo_terminacion: str) -> bool:
     """
-    Check if certificate was already issued in SCE039_DUPLI table
+    Check if a certificate was already issued for this student.
+    Issued-certificate records live in the USEBEQ system (SCE tables) and are
+    not stored locally; previous local requests are already covered by
+    check_existing_request, so no duplicate can be detected here.
     """
-    year_ini = ciclo_terminacion.split('-')[0]
-
-    # Query SCE039_DUPLI table
-    query = text("""
-        SELECT COUNT(*) as count
-        FROM SCE039_DUPLI
-        WHERE ce_inicic = :year_ini
-        AND clavecct = :cct
-        AND al_curp = :curp
-    """)
-
-    result = db.execute(query, {"year_ini": year_ini, "cct": cct, "curp": curp}).fetchone()
-
-    return result[0] > 0 if result else False
+    return False
 
 
 @router.post("/request", response_model=CertificateRequestResponse)

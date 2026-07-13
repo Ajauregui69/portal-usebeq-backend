@@ -1,7 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import date
-from app.models.student import StudentStatus
 
 
 class StudentBase(BaseModel):
@@ -17,7 +16,7 @@ class StudentCreate(StudentBase):
 
 class Student(StudentBase):
     al_id: int
-    al_estatus: StudentStatus
+    al_estatus: Optional[str] = None
     al_fecing: Optional[date] = None
     al_fecnac: Optional[date] = None
 
@@ -26,7 +25,8 @@ class Student(StudentBase):
 
 
 class EnrollmentBase(BaseModel):
-    clavecct: str
+    clavecct: Optional[str] = None
+    nombrect: Optional[str] = None
     nivel: Optional[str] = None
     eg_grado: Optional[str] = None
     eg_grupo: Optional[str] = None
@@ -35,8 +35,8 @@ class EnrollmentBase(BaseModel):
 
 
 class Enrollment(EnrollmentBase):
-    matricula_id: int
-    al_id: int
+    matricula_id: Optional[int] = None
+    al_id: Optional[int] = None
 
     class Config:
         from_attributes = True

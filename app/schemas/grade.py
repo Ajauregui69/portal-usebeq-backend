@@ -11,9 +11,9 @@ class GradeBase(BaseModel):
 
 
 class Grade(GradeBase):
-    id: int
-    al_id: int
-    matricula_id: int
+    id: Optional[int] = None
+    al_id: Optional[int] = None
+    matricula_id: Optional[int] = None
 
     class Config:
         from_attributes = True

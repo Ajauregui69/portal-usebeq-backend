@@ -2,7 +2,7 @@
 Create all tables defined in the models directory.
 """
 from .core.database import engine, Base
-from .models import api_token, certificate, grade, student, user
+from .models import api_token, certificate, student, user
 
 def create_all_tables():
     """Create all tables"""

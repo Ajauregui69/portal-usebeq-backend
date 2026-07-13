@@ -172,6 +172,35 @@ CREATE TABLE IF NOT EXISTS pp_avisos (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
+-- 6. TABLA: pp_hermanos
+-- Uso: Relaciones de hermandad entre estudiantes confirmadas por el padre
+-- Endpoint: POST /api/v1/students/confirm-sibling
+-- =====================================================
+-- NOTA: Solo se guardan los IDs de USEBEQ; los datos del alumno
+-- (nombre, CURP, CCT, grado, grupo) se consultan en vivo al API de USEBEQ.
+CREATE TABLE IF NOT EXISTS pp_hermanos (
+    h_id INT AUTO_INCREMENT PRIMARY KEY,
+    al_id INT NOT NULL COMMENT 'ID del hermano mayor (IdAlumno USEBEQ)',
+    her_id INT NOT NULL COMMENT 'ID del hermano menor (IdAlumno USEBEQ)',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_al_id (al_id),
+    INDEX idx_her_id (her_id),
+    UNIQUE KEY uk_hermanos (al_id, her_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =====================================================
+-- 7. MIGRACION: pp_alumnos.al_curp
+-- Uso: Guarda la CURP capturada por el padre al registrar al alumno
+--      (igual que el portal PHP en produccion). Permite vincular por
+--      CURP sola cuando el alumno ya fue registrado por otro padre.
+-- NOTA: Ejecutar UNA sola vez; si la columna ya existe, MySQL
+--       marcara error "Duplicate column name" y se puede ignorar.
+-- =====================================================
+ALTER TABLE pp_alumnos
+    ADD COLUMN al_curp VARCHAR(18) NULL AFTER al_id,
+    ADD INDEX idx_al_curp (al_curp);
+
+-- =====================================================
 -- VERIFICACION: Confirmar que las tablas fueron creadas
 -- =====================================================
 SELECT 'tramite_revocaciong' AS tabla, COUNT(*) AS registros FROM tramite_revocaciong
@@ -182,4 +211,6 @@ SELECT 'tramites_portal', COUNT(*) FROM tramites_portal
 UNION ALL
 SELECT 'tramite_baja', COUNT(*) FROM tramite_baja
 UNION ALL
-SELECT 'pp_avisos', COUNT(*) FROM pp_avisos;
+SELECT 'pp_avisos', COUNT(*) FROM pp_avisos
+UNION ALL
+SELECT 'pp_hermanos', COUNT(*) FROM pp_hermanos;

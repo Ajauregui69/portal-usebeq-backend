@@ -150,50 +150,25 @@ CREATE TABLE IF NOT EXISTS PP_usuarios (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
--- Tabla: SCE004 (Alumnos)
+-- NOTA IMPORTANTE: Los datos de alumnos (nombre, CURP, matrícula,
+-- calificaciones, certificados) viven en el sistema de USEBEQ y se
+-- consultan en vivo a través de su API externa. NO se crean tablas
+-- espejo SCE00x en esta base de datos; solo se guarda el IdAlumno
+-- (al_id) como referencia en las tablas locales.
 -- ============================================
-CREATE TABLE IF NOT EXISTS SCE004 (
-    al_id INT AUTO_INCREMENT PRIMARY KEY,
-    al_curp VARCHAR(18) NOT NULL UNIQUE,
-    al_nombre VARCHAR(100) NOT NULL,
-    al_appat VARCHAR(100) NOT NULL,
-    al_apmat VARCHAR(100) NULL,
-    al_estatus ENUM('I', 'B', 'A', 'E') DEFAULT 'I',  -- I=Inscrito, B=Baja, A=Adeudo, E=Egresado
-    al_fecing DATE NULL,  -- Fecha de ingreso
-    al_fecnac DATE NULL,  -- Fecha de nacimiento
-
-    INDEX idx_curp (al_curp)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ============================================
--- Tabla: SCE005 (Inscripciones/Matrículas)
--- ============================================
-CREATE TABLE IF NOT EXISTS SCE005 (
-    matricula_id INT AUTO_INCREMENT PRIMARY KEY,
-    al_id INT NOT NULL,
-    clavecct VARCHAR(20) NOT NULL,  -- Clave del centro de trabajo (escuela)
-    nivel VARCHAR(50) NULL,         -- Nivel educativo
-    eg_grado VARCHAR(10) NULL,      -- Grado
-    eg_grupo VARCHAR(10) NULL,      -- Grupo
-    turno VARCHAR(20) NULL,         -- Turno
-    ciclo_escolar VARCHAR(20) NULL, -- Ciclo escolar (ej: 2024-2025)
-
-    FOREIGN KEY (al_id) REFERENCES SCE004(al_id) ON DELETE CASCADE,
-    INDEX idx_alumno (al_id),
-    INDEX idx_cct (clavecct)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
 -- Tabla: pp_alumnos (Relación Padre-Alumno)
 -- ============================================
 CREATE TABLE IF NOT EXISTS pp_alumnos (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    al_id INT NOT NULL,
+    al_id INT NOT NULL,  -- IdAlumno del API de USEBEQ
+    al_curp VARCHAR(18) NULL,  -- CURP capturada por el padre al registrar (permite vincular por CURP sola)
     u_id INT NOT NULL,
     relacion VARCHAR(20) NULL,  -- padre, madre, tutor
 
-    FOREIGN KEY (al_id) REFERENCES SCE004(al_id) ON DELETE CASCADE,
     FOREIGN KEY (u_id) REFERENCES PP_usuarios(u_id) ON DELETE CASCADE,
+    INDEX idx_al_curp (al_curp),
     INDEX idx_alumno (al_id),
     INDEX idx_usuario (u_id),
     UNIQUE KEY uk_alumno_usuario (al_id, u_id)
@@ -329,42 +304,9 @@ python init_db.py
 │     pp_alumnos      │
 ├─────────────────────┤
 │ id (PK)             │
-│ al_id (FK)──────────┼──────┐
-│ u_id (FK)           │      │
-│ relacion            │      │
-└─────────────────────┘      │
-                             │
-          ┌──────────────────┘
-          │ N:1
-          ▼
-┌─────────────────────┐
-│      SCE004         │
-│     (Alumnos)       │
-├─────────────────────┤
-│ al_id (PK)          │
-│ al_curp             │
-│ al_nombre           │
-│ al_appat            │
-│ al_apmat            │
-│ al_estatus          │
-│ al_fecing           │
-│ al_fecnac           │
-└─────────┬───────────┘
-          │
-          │ 1:N
-          ▼
-┌─────────────────────┐
-│      SCE005         │
-│   (Inscripciones)   │
-├─────────────────────┤
-│ matricula_id (PK)   │
-│ al_id (FK)          │
-│ clavecct            │
-│ nivel               │
-│ eg_grado            │
-│ eg_grupo            │
-│ turno               │
-│ ciclo_escolar       │
+│ al_id ──────────────┼──► IdAlumno en el API de USEBEQ
+│ u_id (FK)           │    (datos del alumno consultados en vivo,
+│ relacion            │     no se almacenan localmente)
 └─────────────────────┘
 
 ┌─────────────────────┐
@@ -395,24 +337,14 @@ VALUES (
 );
 ```
 
-### Insertar Alumno de Prueba
-
-```sql
-INSERT INTO SCE004 (al_curp, al_nombre, al_appat, al_apmat, al_estatus)
-VALUES (
-    'CURP123456HQRXXX01',
-    'Alumno',
-    'De Prueba',
-    'Test',
-    'I'
-);
-```
-
 ### Vincular Alumno con Usuario
 
+Los datos del alumno viven en el API de USEBEQ; solo se guarda el IdAlumno:
+
 ```sql
+-- al_id debe ser un IdAlumno válido del API de USEBEQ
 INSERT INTO pp_alumnos (al_id, u_id, relacion)
-VALUES (1, 1, 'padre');
+VALUES (863309, 1, 'padre');
 ```
 
 ---

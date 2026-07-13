@@ -2,12 +2,13 @@ from typing import Any, List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import Column, Integer, String, Text, DateTime, text
+from sqlalchemy import text
 from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.api.dependencies.auth import get_current_active_user
 from app.models.user import User
+from app.services.usebeq_api_service import USEBEQAPIService
 
 router = APIRouter()
 
@@ -71,7 +72,7 @@ class RevocacionStatusResponse(BaseModel):
 # ========== SOLUCIONES EN LINEA ==========
 
 @router.post("/solicitud", response_model=TramiteResponse)
-def crear_solicitud(
+async def crear_solicitud(
     solicitud: TramiteRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -84,13 +85,20 @@ def crear_solicitud(
     count = (result[0] if result else 0) + 1
     folio = f"SOL-{year}-{count:05d}"
 
+    # Resolve the student ID through the USEBEQ API (no local student tables)
+    al_id = None
+    try:
+        estudiante = await USEBEQAPIService(db).get_estudiante_by_curp_cct(
+            solicitud.curp.strip().upper(), solicitud.cct.strip().upper()
+        )
+        al_id = estudiante.IdAlumno
+    except Exception:
+        al_id = None
+
     # Insert into PP_tramites
     insert_query = text("""
         INSERT INTO PP_tramites (al_id, u_id, tipo_tramite, folio, fecha_solicitud, estatus, descripcion)
-        VALUES (
-            (SELECT al_id FROM SCE004 WHERE al_curp = :curp LIMIT 1),
-            :u_id, :tipo_tramite, :folio, :fecha, :estatus, :descripcion
-        )
+        VALUES (:al_id, :u_id, :tipo_tramite, :folio, :fecha, :estatus, :descripcion)
     """)
 
     a_materno = solicitud.a_materno or ""
@@ -107,7 +115,7 @@ def crear_solicitud(
 
     try:
         db.execute(insert_query, {
-            "curp": solicitud.curp.strip().upper(),
+            "al_id": al_id,
             "u_id": current_user.u_id,
             "tipo_tramite": solicitud.tipo_tramite,
             "folio": folio,
@@ -127,17 +135,26 @@ def crear_solicitud(
         data={"tipo_tramite": solicitud.tipo_tramite, "nombre": f"{solicitud.nombre_alumno} {solicitud.a_paterno}"}
     )
 
+async def _student_curp_nombre(db: Session, al_id: Optional[int]) -> tuple:
+    """Resolve CURP and full name from the USEBEQ API; empty values on failure."""
+    if not al_id:
+        return "", None
+    try:
+        estudiante = await USEBEQAPIService(db).get_estudiante_by_id(al_id)
+        nombre = f"{estudiante.Nombre} {estudiante.ApellidoPaterno} {estudiante.ApellidoMaterno or ''}".strip()
+        return estudiante.CURP or "", nombre
+    except Exception:
+        return "", None
+
 @router.get("/solicitud/estatus/{folio}", response_model=TramiteStatusResponse)
-def consultar_estatus_solicitud(
+async def consultar_estatus_solicitud(
     folio: str,
     db: Session = Depends(get_db),
 ) -> Any:
     """Check the status of an online request"""
     query = text("""
-        SELECT t.folio, t.tipo_tramite, t.estatus, t.descripcion, t.fecha_solicitud,
-               s.al_curp, CONCAT(s.al_nombre, ' ', s.al_appat, ' ', COALESCE(s.al_apmat, '')) as nombre
+        SELECT t.folio, t.tipo_tramite, t.estatus, t.descripcion, t.fecha_solicitud, t.al_id
         FROM PP_tramites t
-        LEFT JOIN SCE004 s ON t.al_id = s.al_id
         WHERE t.folio = :folio
     """)
     result = db.execute(query, {"folio": folio.upper()}).fetchone()
@@ -145,10 +162,12 @@ def consultar_estatus_solicitud(
     if not result:
         raise HTTPException(status_code=404, detail="No se encontró solicitud con este folio")
 
+    curp, nombre = await _student_curp_nombre(db, result[5])
+
     return TramiteStatusResponse(
         folio=result[0],
-        curp=result[5] or "",
-        nombre=result[6],
+        curp=curp,
+        nombre=nombre,
         tipo_tramite=result[1] or "",
         estatus=result[2] or "",
         comentarios=result[3],
@@ -156,28 +175,28 @@ def consultar_estatus_solicitud(
     )
 
 @router.get("/solicitudes/mis-tramites", response_model=List[TramiteStatusResponse])
-def mis_tramites(
+async def mis_tramites(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
     """Get all requests for current user"""
     query = text("""
-        SELECT t.folio, t.tipo_tramite, t.estatus, t.descripcion, t.fecha_solicitud,
-               s.al_curp, CONCAT(s.al_nombre, ' ', s.al_appat, ' ', COALESCE(s.al_apmat, '')) as nombre
+        SELECT t.folio, t.tipo_tramite, t.estatus, t.descripcion, t.fecha_solicitud, t.al_id
         FROM PP_tramites t
-        LEFT JOIN SCE004 s ON t.al_id = s.al_id
         WHERE t.u_id = :u_id
         ORDER BY t.fecha_solicitud DESC
     """)
     results = db.execute(query, {"u_id": current_user.u_id}).fetchall()
 
-    return [
-        TramiteStatusResponse(
-            folio=r[0], curp=r[5] or "", nombre=r[6],
+    tramites = []
+    for r in results:
+        curp, nombre = await _student_curp_nombre(db, r[5])
+        tramites.append(TramiteStatusResponse(
+            folio=r[0], curp=curp, nombre=nombre,
             tipo_tramite=r[1] or "", estatus=r[2] or "",
             comentarios=r[3], fecha_solicitud=str(r[4]) if r[4] else None
-        ) for r in results
-    ]
+        ))
+    return tramites
 
 # ========== REVOCACION DE GRADO ==========
 

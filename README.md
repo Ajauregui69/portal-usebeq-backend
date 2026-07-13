@@ -30,16 +30,17 @@ nano .env
 
 ### 3. Base de Datos
 
-Asegúrate de tener SQL Server configurado y las tablas creadas:
+Asegúrate de tener la base de datos configurada y las tablas creadas:
 
 ```sql
--- Tablas principales
+-- Tablas principales (solo datos propios del portal)
 PP_usuarios       -- Usuarios del portal
-SCE004           -- Estudiantes
-SCE005           -- Matrículas
-pp_alumnos       -- Relación padre-alumno
-SCE039           -- Certificados
+pp_alumnos       -- Relación padre-alumno (guarda el IdAlumno del API de USEBEQ)
+pp_token         -- Tokens del API externa de USEBEQ
 ```
+
+> Los datos de alumnos, matrículas, calificaciones y certificados **no se
+> almacenan localmente**: se consultan en vivo al API externa de USEBEQ.
 
 ### 4. Ejecutar
 

@@ -26,49 +26,6 @@ class TipoTramite(str, enum.Enum):
     CERTIFICADO_SECUNDARIA = "CERTIFICADO DE SECUNDARIA"
 
 
-class Certificate(Base):
-    """
-    Certificate model representing SCE039 table
-    """
-    __tablename__ = "SCE039"
-
-    id = Column(Integer, primary_key=True, index=True)
-    al_id = Column(Integer, ForeignKey("SCE004.al_id"), nullable=False)
-    folio = Column(String(50), unique=True, index=True)
-    foliosep = Column(String(50), unique=True, index=True)
-    clavecct = Column(String(20))
-    nivel = Column(String(50))
-    ciclo_escolar = Column(String(20))
-    promedio = Column(String(10))
-    fecha_emision = Column(Date)
-    IdEstatus = Column(Integer)  # Status ID
-
-    # Relationships
-    student = relationship("Student", foreign_keys=[al_id])
-
-
-class CertificateDuplicate(Base):
-    """
-    Certificate duplicate requests model
-    """
-    __tablename__ = "SCE039_DUPLI"
-
-    id = Column(Integer, primary_key=True, index=True)
-    al_id = Column(Integer, ForeignKey("SCE004.al_id"), nullable=False)
-    u_id = Column(Integer, ForeignKey("PP_usuarios.u_id"), nullable=False)
-    tipo_documento = Column(String(50))  # CERTIFICADO, BOLETA, etc.
-    folio_solicitud = Column(String(50), unique=True, index=True)
-    fecha_solicitud = Column(Date)
-    estatus = Column(String(20))  # PENDIENTE, PROCESADO, ENTREGADO
-    nivel = Column(String(50))
-    ciclo_escolar = Column(String(20))
-    motivo = Column(Text)
-
-    # Relationships
-    student = relationship("Student", foreign_keys=[al_id])
-    user = relationship("User", foreign_keys=[u_id])
-
-
 class CertificateRequest(Base):
     """
     Model representing tramites1 table - Certificate requests
@@ -111,7 +68,7 @@ class Tramite(Base):
     __tablename__ = "PP_tramites"
 
     id = Column(Integer, primary_key=True, index=True)
-    al_id = Column(Integer, ForeignKey("SCE004.al_id"), nullable=False)
+    al_id = Column(Integer, nullable=True, index=True)  # IdAlumno from USEBEQ API
     u_id = Column(Integer, ForeignKey("PP_usuarios.u_id"), nullable=False)
     tipo_tramite = Column(String(50))  # BAJA, REVOCACION, DUPLICADO
     folio = Column(String(50), unique=True, index=True)
@@ -121,5 +78,4 @@ class Tramite(Base):
     documentos_adjuntos = Column(Text)  # JSON with document URLs
 
     # Relationships
-    student = relationship("Student", foreign_keys=[al_id])
     user = relationship("User", foreign_keys=[u_id])

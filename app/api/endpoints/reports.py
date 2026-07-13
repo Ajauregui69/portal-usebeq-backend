@@ -6,9 +6,24 @@ import requests
 from app.core.database import get_db
 from app.api.dependencies.auth import get_current_active_user
 from app.models.user import User
+from app.models.student import StudentParent
 from app.schemas.report import BoletaResponse
 
 router = APIRouter()
+
+
+def _verify_student_access(db: Session, current_user: User, al_id: int) -> None:
+    """Verify the student is linked to the current user via pp_alumnos."""
+    link = db.query(StudentParent).filter(
+        StudentParent.al_id == al_id,
+        StudentParent.u_id == current_user.u_id
+    ).first()
+
+    if not link:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes acceso a este estudiante"
+        )
 
 # Azure SCE API configuration
 SCE_API_BASE_URL = "https://sce-usebeq-api.azurewebsites.net/api"
@@ -27,25 +42,8 @@ async def get_boleta_pdf(
 
     Returns PDF directly or error message
     """
-    from sqlalchemy import text
-
     # Verify student belongs to current user
-    verify_query = text("""
-        SELECT al_id FROM pp_alumnos
-        WHERE al_id = :al_id
-        AND (padre = :correo OR madre = :correo OR tutor = :correo)
-    """)
-
-    result = db.execute(verify_query, {
-        "al_id": al_id,
-        "correo": current_user.u_correo
-    }).fetchone()
-
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes acceso a este estudiante"
-        )
+    _verify_student_access(db, current_user, al_id)
 
     # Call Azure API
     api_url = f"{SCE_API_BASE_URL}/boletas/{al_id}"
@@ -106,43 +104,23 @@ async def get_certificado_electronico(
 
     Returns redirect to certificate URL or error if not available
     """
-    from sqlalchemy import text
-
     # Verify student belongs to current user
-    verify_query = text("""
-        SELECT al_id FROM pp_alumnos
-        WHERE al_id = :al_id
-        AND (padre = :correo OR madre = :correo OR tutor = :correo)
-    """)
+    _verify_student_access(db, current_user, al_id)
 
-    result = db.execute(verify_query, {
-        "al_id": al_id,
-        "correo": current_user.u_correo
-    }).fetchone()
+    # Check availability directly against the portal (no local SCE tables)
+    certificate_url = f"https://portal.usebeq.edu.mx/certificados2/{ciclo}/{al_id}.pdf"
 
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes acceso a este estudiante"
-        )
+    try:
+        check = requests.head(certificate_url, verify=False, timeout=15, allow_redirects=True)
+        available = check.status_code == 200
+    except requests.exceptions.RequestException:
+        available = False
 
-    # Check if certificate exists (IdEstatus = 4 means signed/ready)
-    cert_query = text("""
-        SELECT IdEstatus
-        FROM SCE039
-        WHERE al_id = :al_id
-    """)
-
-    cert_result = db.execute(cert_query, {"al_id": al_id}).fetchone()
-
-    if not cert_result or cert_result[0] != 4:
+    if not available:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Certificado electronico no disponible para este estudiante"
         )
-
-    # Return certificate URL
-    certificate_url = f"https://portal.usebeq.edu.mx/certificados2/{ciclo}/{al_id}.pdf"
 
     return {
         "success": True,
@@ -164,25 +142,8 @@ async def get_reporte_componentes(
 
     Returns redirect to report URL
     """
-    from sqlalchemy import text
-
     # Verify student belongs to current user
-    verify_query = text("""
-        SELECT al_id FROM pp_alumnos
-        WHERE al_id = :al_id
-        AND (padre = :correo OR madre = :correo OR tutor = :correo)
-    """)
-
-    result = db.execute(verify_query, {
-        "al_id": al_id,
-        "correo": current_user.u_correo
-    }).fetchone()
-
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes acceso a este estudiante"
-        )
+    _verify_student_access(db, current_user, al_id)
 
     # Generate report URL
     import base64
