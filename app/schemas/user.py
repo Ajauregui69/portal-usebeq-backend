@@ -27,6 +27,9 @@ class UserBase(BaseModel):
 # Properties to receive on user creation
 class UserCreate(UserBase):
     u_pass: Optional[str] = Field(None, min_length=6)
+    # A 10 digitos como maximo (telefonos de Mexico); el limite de 20 en
+    # UserBase se conserva para no invalidar registros antiguos al leerlos
+    u_tel: Optional[str] = Field(None, max_length=10)
 
 
 # Properties to receive on user update
@@ -34,7 +37,7 @@ class UserUpdate(BaseModel):
     u_nombre: Optional[str] = None
     u_appat: Optional[str] = None
     u_apmat: Optional[str] = None
-    u_tel: Optional[str] = None
+    u_tel: Optional[str] = Field(None, max_length=10)
     domicilio: Optional[str] = None
     sexo: Optional[str] = None
 
