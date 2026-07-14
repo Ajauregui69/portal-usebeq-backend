@@ -20,6 +20,7 @@ class Announcement(Base):
     contenido = Column(Text, nullable=False)
     tipo = Column(String(50), default="info")  # info, warning, urgent
     imagen_url = Column(String(500), nullable=True)
+    link_url = Column(String(500), nullable=True)  # destino al dar click en la imagen
     activo = Column(Boolean, default=True)
     fecha_inicio = Column(DateTime, default=datetime.utcnow)
     fecha_fin = Column(DateTime, nullable=True)
@@ -32,6 +33,7 @@ class AnnouncementBase(BaseModel):
     contenido: str
     tipo: str = "info"
     imagen_url: Optional[str] = None
+    link_url: Optional[str] = None
     activo: bool = True
     fecha_inicio: Optional[datetime] = None
     fecha_fin: Optional[datetime] = None
@@ -82,6 +84,7 @@ def create_announcement(
         contenido=announcement.contenido,
         tipo=announcement.tipo,
         imagen_url=announcement.imagen_url,
+        link_url=announcement.link_url,
         activo=announcement.activo,
         fecha_inicio=announcement.fecha_inicio or datetime.utcnow(),
         fecha_fin=announcement.fecha_fin,

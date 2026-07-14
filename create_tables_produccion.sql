@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS pp_avisos (
     contenido TEXT NOT NULL,
     tipo VARCHAR(50) DEFAULT 'info',
     imagen_url VARCHAR(500),
+    link_url VARCHAR(500) COMMENT 'Destino al dar click en la imagen del aviso',
     activo TINYINT(1) DEFAULT 1,
     fecha_inicio DATETIME DEFAULT CURRENT_TIMESTAMP,
     fecha_fin DATETIME,
