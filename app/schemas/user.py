@@ -1,7 +1,11 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional
 from datetime import datetime
 from app.models.user import UserStatus
+
+# Campos de datos personales que se guardan homologados en MAYUSCULAS
+# (el correo y la contraseña quedan fuera)
+UPPERCASE_FIELDS = ("u_nombre", "u_appat", "u_apmat", "u_tel", "domicilio", "sexo")
 
 
 # Shared properties
@@ -13,6 +17,11 @@ class UserBase(BaseModel):
     u_tel: Optional[str] = Field(None, max_length=20)
     domicilio: Optional[str] = Field(None, max_length=255)
     sexo: Optional[str] = Field(None, max_length=1)
+
+    @field_validator(*UPPERCASE_FIELDS)
+    @classmethod
+    def uppercase_personal_data(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip().upper() if isinstance(v, str) else v
 
 
 # Properties to receive on user creation
@@ -28,6 +37,11 @@ class UserUpdate(BaseModel):
     u_tel: Optional[str] = None
     domicilio: Optional[str] = None
     sexo: Optional[str] = None
+
+    @field_validator(*UPPERCASE_FIELDS)
+    @classmethod
+    def uppercase_personal_data(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip().upper() if isinstance(v, str) else v
 
 
 # Properties stored in DB

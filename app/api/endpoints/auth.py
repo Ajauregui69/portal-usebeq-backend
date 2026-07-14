@@ -129,8 +129,8 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
             # Google OAuth users don't have a password (u_pass is NULL)
             user = User(
                 u_correo=email,
-                u_nombre=first_name,
-                u_appat=last_name if last_name else ".",  # Ensure u_appat is not empty
+                u_nombre=first_name.strip().upper(),
+                u_appat=last_name.strip().upper() if last_name else ".",  # Ensure u_appat is not empty
                 google_id=google_id,
                 google_refresh_token=credentials.refresh_token,
                 u_pass=None,  # No password for Google OAuth users
