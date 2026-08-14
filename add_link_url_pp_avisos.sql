@@ -1,6 +1,12 @@
 -- Migracion para bases EXISTENTES: agrega link_url a pp_avisos
 -- (las bases creadas desde cero con create_tables_produccion.sql ya la incluyen)
--- Ejecutar UNA sola vez; si la columna ya existe, MySQL marcara
--- "Duplicate column name" y se puede ignorar.
-ALTER TABLE pp_avisos
-    ADD COLUMN link_url VARCHAR(500) NULL COMMENT 'Destino al dar click en la imagen del aviso' AFTER imagen_url;
+-- SQL Server (Azure SQL Database). Ejecutar UNA sola vez; el bloque
+-- IF NOT EXISTS evita el error de columna duplicada si ya se aplico.
+IF NOT EXISTS (
+    SELECT * FROM sys.columns
+    WHERE object_id = OBJECT_ID('pp_avisos') AND name = 'link_url'
+)
+BEGIN
+    ALTER TABLE pp_avisos
+        ADD link_url VARCHAR(500) NULL; -- Destino al dar click en la imagen del aviso
+END;

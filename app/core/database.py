@@ -7,10 +7,20 @@ from app.core.config import settings
 
 def get_clean_database_url(url: str) -> tuple[str, dict]:
     """
-    Clean DATABASE_URL removing ssl_mode parameter and return connect_args for SSL.
-    Azure MySQL adds ssl_mode which pymysql doesn't support as URL parameter.
+    Clean DATABASE_URL for the active driver and return connect_args.
+
+    - MySQL (legacy, kept for local/dev fallback): Azure Database for MySQL
+      adds ssl_mode to the URL, which pymysql doesn't accept as a URL
+      parameter, so it's stripped out and turned into connect_args instead.
+    - SQL Server (mssql+pymssql, Azure SQL Database): no cleanup needed.
+      pymssql/FreeTDS negotiate TLS automatically with Azure SQL, so the
+      URL is passed through as-is.
     """
     parsed = urlparse(url)
+
+    if not parsed.scheme.startswith("mysql"):
+        return url, {}
+
     query_params = parse_qs(parsed.query)
 
     # Check if ssl_mode is in the URL

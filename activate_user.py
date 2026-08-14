@@ -3,7 +3,7 @@ from datetime import datetime
 import os
 
 # Get database URL from environment or use default
-db_url = os.getenv('DATABASE_URL', 'mysql+pymysql://usebeq_user:usebeq_password_123@localhost/usebeq_portal?charset=utf8mb4')
+db_url = os.getenv('DATABASE_URL', 'mssql+pymssql://usebeq_user:usebeq_password_123@localhost:1433/usebeq_portal')
 
 # Create engine
 engine = create_engine(db_url)

@@ -1,18 +1,17 @@
-# Manual: Crear y Configurar Base de Datos MySQL
+# Manual: Crear y Configurar Base de Datos SQL Server
 
-Este manual explica cómo crear la base de datos MySQL para el Portal USEBEQ, ya sea en Azure o en un servidor propio.
+Este manual explica cómo crear la base de datos SQL Server para el Portal USEBEQ, ya sea en Azure SQL Database o en un servidor propio. Reemplaza al manual anterior de MySQL.
 
 ---
 
-## Opción A: Azure Database for MySQL
+## Opción A: Azure SQL Database
 
-### Paso 1: Crear el Servidor MySQL
+### Paso 1: Crear el Servidor SQL Server
 
 1. Ir a [Azure Portal](https://portal.azure.com)
 2. Click en **"Create a resource"**
-3. Buscar **"Azure Database for MySQL"**
-4. Seleccionar **"Flexible Server"** (recomendado)
-5. Click en **"Create"**
+3. Buscar **"SQL Database"**
+4. Click en **"Create"**
 
 ### Configuración del Servidor
 
@@ -20,85 +19,91 @@ Este manual explica cómo crear la base de datos MySQL para el Portal USEBEQ, ya
 |-------|-------|
 | Subscription | Tu suscripción |
 | Resource group | `rg-portal-usebeq` |
-| Server name | `usebeq-mysql-server` (debe ser único) |
-| Region | `Mexico Central` |
-| MySQL version | **8.0** |
-| Workload type | **Development** (o Production según necesidad) |
-| Compute + storage | **Burstable, B1ms** (desarrollo) |
+| Database name | `portal_usebeq` |
+| Server | Crear nuevo: `usebeq-sql-server` (debe ser único) |
+| Region | `Mexico Central` (o la más cercana disponible) |
+| Want to use SQL elastic pool | No |
+| Compute + storage | **General Purpose - Serverless** o **Basic** (desarrollo) |
 
-### Autenticación
+### Autenticación del servidor
 
 | Campo | Valor |
 |-------|-------|
-| Authentication method | **MySQL authentication only** |
-| Admin username | `usebeq_admin` |
-| Password | (crear password seguro, mínimo 8 caracteres) |
+| Authentication method | **Use SQL authentication** |
+| Server admin login | `usebeq_admin` |
+| Password | (crear password seguro, mínimo 8 caracteres, con mayúsculas/minúsculas/números/símbolos) |
 
-6. Click en **"Review + create"**
-7. Click en **"Create"**
+5. Click en **"Review + create"**
+6. Click en **"Create"**
 
 ### Paso 2: Configurar Firewall
 
-1. Ir al servidor MySQL creado
+1. Ir al servidor SQL creado (no a la base de datos, al **server**)
 2. Click en **"Networking"** en el menú lateral
 3. En **"Firewall rules"**:
-   - Activar **"Allow public access from any Azure service"**
-   - Click en **"+ Add current client IP address"** (para desarrollo)
+   - Activar **"Allow Azure services and resources to access this server"** (necesario para que el Web App se conecte)
+   - Click en **"+ Add current client IP address"** (para administrar desde tu máquina)
 4. Click en **"Save"**
 
-### Paso 3: Crear la Base de Datos
-
-1. En el servidor MySQL, click en **"Databases"**
-2. Click en **"+ Add"**
-3. Database name: `portal_usebeq`
-4. Character set: `utf8mb4`
-5. Collation: `utf8mb4_unicode_ci`
-6. Click en **"Save"**
+Azure SQL Database exige conexión cifrada (TLS) siempre; no hay opción de desactivarla.
 
 ---
 
-## Opción B: MySQL Local o Servidor Propio
+## Opción B: SQL Server Local o Servidor Propio
 
-### Instalar MySQL (Ubuntu/Debian)
+### Instalar SQL Server (Ubuntu/Debian)
 
 ```bash
-# Instalar MySQL Server
+# Importar la llave y el repositorio de Microsoft
 sudo apt update
-sudo apt install mysql-server
+sudo curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
+sudo curl -fsSL https://packages.microsoft.com/config/ubuntu/22.04/mssql-server-2022.list | sudo tee /etc/apt/sources.list.d/mssql-server-2022.list
+
+# Instalar SQL Server
+sudo apt update
+sudo apt install -y mssql-server
+sudo /opt/mssql/bin/mssql-conf setup
 
 # Iniciar el servicio
-sudo systemctl start mysql
-sudo systemctl enable mysql
+sudo systemctl start mssql-server
+sudo systemctl enable mssql-server
 
-# Configurar seguridad
-sudo mysql_secure_installation
+# Instalar herramientas de línea de comandos (sqlcmd)
+sudo apt install -y mssql-tools18 unixodbc-dev
 ```
 
-### Instalar MySQL (Windows)
+### Instalar SQL Server (Windows)
 
-1. Descargar MySQL Installer desde https://dev.mysql.com/downloads/installer/
+1. Descargar SQL Server Developer/Express desde https://www.microsoft.com/sql-server/sql-server-downloads
 2. Ejecutar el instalador
-3. Seleccionar "MySQL Server" y "MySQL Workbench"
-4. Seguir el asistente de configuración
+3. Seleccionar instalación **"Basic"** o **"Custom"**
+4. Instalar también **SQL Server Management Studio (SSMS)** para administración
 
 ### Crear Base de Datos y Usuario
 
 ```sql
--- Conectar como root
-mysql -u root -p
+-- Conectar con sqlcmd o SSMS como administrador
+sqlcmd -S localhost -U sa -P 'TuPasswordSA'
 
 -- Crear base de datos
-CREATE DATABASE portal_usebeq CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE portal_usebeq;
+GO
 
--- Crear usuario
-CREATE USER 'usebeq_user'@'%' IDENTIFIED BY 'tu_password_seguro';
+-- Crear login y usuario
+CREATE LOGIN usebeq_user WITH PASSWORD = 'tu_password_seguro';
+GO
+USE portal_usebeq;
+GO
+CREATE USER usebeq_user FOR LOGIN usebeq_user;
+GO
 
 -- Dar permisos
-GRANT ALL PRIVILEGES ON portal_usebeq.* TO 'usebeq_user'@'%';
-FLUSH PRIVILEGES;
+ALTER ROLE db_owner ADD MEMBER usebeq_user;
+GO
 
 -- Verificar
-SHOW DATABASES;
+SELECT name FROM sys.databases;
+GO
 ```
 
 ---
@@ -108,46 +113,47 @@ SHOW DATABASES;
 ### Conectar a la Base de Datos
 
 ```bash
-# Azure MySQL
-mysql -h usebeq-mysql-server.mysql.database.azure.com -u usebeq_admin -p portal_usebeq
+# Azure SQL Database
+sqlcmd -S usebeq-sql-server.database.windows.net -d portal_usebeq -U usebeq_admin -P 'TuPassword'
 
-# MySQL Local
-mysql -u usebeq_user -p portal_usebeq
+# SQL Server Local
+sqlcmd -S localhost -d portal_usebeq -U usebeq_user -P 'TuPassword'
 ```
 
 ### Script de Creación de Tablas
 
+El script completo y actualizado vive en `create_tables_produccion.sql` (raíz del repo). Ejecutarlo con:
+
+```bash
+sqlcmd -S <host> -d portal_usebeq -U <usuario> -P '<password>' -i create_tables_produccion.sql
+```
+
+Resumen de lo que crea (ver el archivo para el detalle completo, incluyendo índices y constraints):
+
 ```sql
--- ============================================
--- PORTAL USEBEQ - Script de Base de Datos
--- ============================================
-
--- Usar la base de datos
-USE portal_usebeq;
-
 -- ============================================
 -- Tabla: PP_usuarios (Usuarios/Padres de familia)
 -- ============================================
-CREATE TABLE IF NOT EXISTS PP_usuarios (
-    u_id INT AUTO_INCREMENT PRIMARY KEY,
-    u_correo VARCHAR(255) NOT NULL UNIQUE,
+CREATE TABLE PP_usuarios (
+    u_id INT IDENTITY(1,1) PRIMARY KEY,
+    u_correo VARCHAR(255) NOT NULL,
     u_pass VARCHAR(255) NULL,  -- NULL para usuarios de Google
-    estatus ENUM('PENDIENTE', 'VALIDADO', 'INACTIVO') DEFAULT 'PENDIENTE',
+    estatus VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE'
+        CONSTRAINT ck_usuarios_estatus CHECK (estatus IN ('PENDIENTE', 'VALIDADO', 'INACTIVO')),
     u_nombre VARCHAR(100) NOT NULL,
     u_appat VARCHAR(100) NOT NULL,
     u_apmat VARCHAR(100) NULL,
     u_tel VARCHAR(20) NULL,
     domicilio VARCHAR(255) NULL,
-    sexo CHAR(1) NULL,
-    fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP,
+    sexo VARCHAR(1) NULL,
+    fecha_registro DATETIME NOT NULL DEFAULT GETDATE(),
     fecha_validacion DATETIME NULL,
     token_activacion VARCHAR(255) NULL,
-    google_id VARCHAR(255) NULL UNIQUE,
-    google_refresh_token TEXT NULL,
-
-    INDEX idx_correo (u_correo),
-    INDEX idx_google_id (google_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    google_id VARCHAR(255) NULL,
+    google_refresh_token VARCHAR(512) NULL,
+    CONSTRAINT uk_correo UNIQUE (u_correo),
+    CONSTRAINT uk_google_id UNIQUE (google_id)
+);
 
 -- ============================================
 -- NOTA IMPORTANTE: Los datos de alumnos (nombre, CURP, matrícula,
@@ -160,98 +166,75 @@ CREATE TABLE IF NOT EXISTS PP_usuarios (
 -- ============================================
 -- Tabla: pp_alumnos (Relación Padre-Alumno)
 -- ============================================
-CREATE TABLE IF NOT EXISTS pp_alumnos (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE pp_alumnos (
+    id INT IDENTITY(1,1) PRIMARY KEY,
     al_id INT NOT NULL,  -- IdAlumno del API de USEBEQ
-    al_curp VARCHAR(18) NULL,  -- CURP capturada por el padre al registrar (permite vincular por CURP sola)
+    al_curp VARCHAR(18) NULL,  -- CURP capturada por el padre al registrar
     u_id INT NOT NULL,
     relacion VARCHAR(20) NULL,  -- padre, madre, tutor
-
-    FOREIGN KEY (u_id) REFERENCES PP_usuarios(u_id) ON DELETE CASCADE,
-    INDEX idx_al_curp (al_curp),
-    INDEX idx_alumno (al_id),
-    INDEX idx_usuario (u_id),
-    UNIQUE KEY uk_alumno_usuario (al_id, u_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    CONSTRAINT fk_pp_alumnos_usuario FOREIGN KEY (u_id) REFERENCES PP_usuarios (u_id)
+);
 
 -- ============================================
 -- Tabla: pp_token (Tokens de API externa USEBEQ)
 -- ============================================
-CREATE TABLE IF NOT EXISTS pp_token (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    token TEXT NOT NULL,
-    refresh_token TEXT NOT NULL,
-    fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE pp_token (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    token VARCHAR(2000) NOT NULL,
+    refresh_token VARCHAR(2000) NOT NULL,
+    fecha_registro DATETIME NOT NULL DEFAULT GETDATE()
+);
 
 -- ============================================
 -- Verificar tablas creadas
 -- ============================================
-SHOW TABLES;
-```
-
-### Guardar Script
-
-Guardar el script como `database_setup.sql` y ejecutarlo:
-
-```bash
-mysql -h host -u usuario -p nombre_bd < database_setup.sql
+SELECT name FROM sys.tables;
 ```
 
 ---
 
 ## Paso 5: Configurar Conexión en el Backend
 
+El backend usa el driver `pymssql` (paquete Python puro, no requiere instalar el ODBC Driver de Microsoft a nivel de sistema operativo, lo que simplifica el despliegue en Azure App Service Linux).
+
 ### Cadena de Conexión
 
 **Formato:**
 ```
-mysql+pymysql://usuario:password@host:puerto/base_de_datos?charset=utf8mb4
+mssql+pymssql://usuario:password@host:puerto/base_de_datos
 ```
 
-**Azure MySQL:**
+**Azure SQL Database:**
 ```
-mysql+pymysql://usebeq_admin:TuPassword@usebeq-mysql-server.mysql.database.azure.com:3306/portal_usebeq?charset=utf8mb4
+mssql+pymssql://usebeq_admin:TuPassword@usebeq-sql-server.database.windows.net:1433/portal_usebeq
 ```
 
-**MySQL Local:**
+**SQL Server Local:**
 ```
-mysql+pymysql://usebeq_user:TuPassword@localhost:3306/portal_usebeq?charset=utf8mb4
+mssql+pymssql://usebeq_user:TuPassword@localhost:1433/portal_usebeq
 ```
 
 ### Configurar en .env (Desarrollo)
 
 ```env
-DATABASE_URL=mysql+pymysql://usebeq_user:password123@localhost:3306/portal_usebeq?charset=utf8mb4
+DATABASE_URL=mssql+pymssql://usebeq_user:password123@localhost:1433/portal_usebeq
 ```
 
 ### Configurar en Azure (Producción)
 
-En Azure Portal > Web App > Configuration:
+En Azure Portal > Web App > Configuration > Application settings:
 
 | Name | Value |
 |------|-------|
-| `DATABASE_URL` | `mysql+pymysql://user:pass@host:3306/db?charset=utf8mb4` |
+| `DATABASE_URL` | `mssql+pymssql://usuario:password@host:1433/portal_usebeq` |
 
 ---
 
 ## Paso 6: Crear Tablas Automáticamente con SQLAlchemy
 
-El backend puede crear las tablas automáticamente si no existen.
+El backend puede crear las tablas automáticamente si no existen (útil para ambientes de prueba; en producción se recomienda ejecutar `create_tables_produccion.sql` directamente para tener control total del DDL).
 
-### Opción 1: Crear al iniciar la app
-
-Agregar en `app/main.py`:
-
-```python
-from app.core.database import engine, Base
-from app.models import user, student, api_token  # Importar todos los modelos
-
-# Crear tablas al iniciar (solo si no existen)
-Base.metadata.create_all(bind=engine)
-```
-
-### Opción 2: Script de inicialización
+### Script de inicialización
 
 Crear archivo `init_db.py`:
 
@@ -351,87 +334,101 @@ VALUES (863309, 1, 'padre');
 
 ## Solución de Problemas
 
-### Error: "Access denied for user"
+### Error: "Login failed for user"
 
 **Causa:** Usuario o contraseña incorrectos.
 
 **Solución:**
 ```sql
--- Verificar usuarios
-SELECT user, host FROM mysql.user;
+-- Verificar logins existentes (ejecutar en la base master)
+SELECT name FROM sys.sql_logins;
 
 -- Recrear usuario si es necesario
-DROP USER 'usebeq_user'@'%';
-CREATE USER 'usebeq_user'@'%' IDENTIFIED BY 'nuevo_password';
-GRANT ALL PRIVILEGES ON portal_usebeq.* TO 'usebeq_user'@'%';
-FLUSH PRIVILEGES;
+DROP LOGIN usebeq_user;
+CREATE LOGIN usebeq_user WITH PASSWORD = 'nuevo_password';
+USE portal_usebeq;
+CREATE USER usebeq_user FOR LOGIN usebeq_user;
+ALTER ROLE db_owner ADD MEMBER usebeq_user;
 ```
 
-### Error: "Can't connect to MySQL server"
+### Error: "Cannot connect" / "Adaptive Server connection failed"
 
 **Causas posibles:**
-1. MySQL no está corriendo
-2. Firewall bloqueando conexión
-3. Host incorrecto
+1. SQL Server no está corriendo
+2. Firewall de Azure SQL bloqueando la IP de origen
+3. Host o puerto incorrecto (Azure SQL siempre usa el puerto 1433)
 
 **Soluciones:**
 ```bash
-# Verificar que MySQL está corriendo
-sudo systemctl status mysql
+# Verificar que el servicio local está corriendo
+sudo systemctl status mssql-server
 
 # Verificar puerto
-netstat -tlnp | grep 3306
+netstat -tlnp | grep 1433
 
-# Para Azure, verificar firewall en el portal
+# Para Azure SQL, revisar Networking > Firewall rules en el portal
+# y confirmar que "Allow Azure services..." está activado si el
+# Web App necesita conectarse
 ```
 
-### Error: "Unknown column 'google_id'"
+### Error: "Invalid column name 'google_id'"
 
 **Causa:** La tabla existe pero le faltan las columnas nuevas.
 
 **Solución:**
 ```sql
-ALTER TABLE PP_usuarios ADD COLUMN google_id VARCHAR(255) NULL UNIQUE;
-ALTER TABLE PP_usuarios ADD COLUMN google_refresh_token TEXT NULL;
+ALTER TABLE PP_usuarios ADD google_id VARCHAR(255) NULL;
+ALTER TABLE PP_usuarios ADD google_refresh_token VARCHAR(512) NULL;
+GO
+ALTER TABLE PP_usuarios ADD CONSTRAINT uk_google_id UNIQUE (google_id);
+GO
 ```
 
-### Error: "Column 'u_pass' cannot be null"
+### Error: "Cannot insert the value NULL into column 'u_pass'"
 
 **Causa:** La columna u_pass no permite NULL (necesario para usuarios de Google).
 
 **Solución:**
 ```sql
-ALTER TABLE PP_usuarios MODIFY COLUMN u_pass VARCHAR(255) NULL;
+ALTER TABLE PP_usuarios ALTER COLUMN u_pass VARCHAR(255) NULL;
 ```
 
 ---
 
 ## Backup y Restauración
 
-### Crear Backup
+### Crear Backup (Azure SQL Database)
 
-```bash
-# Backup completo
-mysqldump -h host -u usuario -p portal_usebeq > backup_portal_usebeq.sql
+Azure SQL Database hace backups automáticos (point-in-time restore) sin configuración adicional. Para un backup manual exportable:
 
-# Backup con fecha
-mysqldump -h host -u usuario -p portal_usebeq > backup_$(date +%Y%m%d).sql
-```
+1. Ir al recurso de la base de datos en Azure Portal
+2. Click en **"Export"** en la barra superior
+3. Guardar como archivo `.bacpac` en un Storage Account
 
 ### Restaurar Backup
 
+1. Ir al servidor SQL en Azure Portal
+2. Click en **"Import database"**
+3. Seleccionar el archivo `.bacpac`
+
+### Backup con sqlcmd/sqlpackage (servidor propio)
+
 ```bash
-mysql -h host -u usuario -p portal_usebeq < backup_portal_usebeq.sql
+# Backup completo
+sqlcmd -S host -U usuario -P 'password' -Q "BACKUP DATABASE portal_usebeq TO DISK = '/var/opt/mssql/backup/portal_usebeq.bak'"
+
+# Restaurar
+sqlcmd -S host -U usuario -P 'password' -Q "RESTORE DATABASE portal_usebeq FROM DISK = '/var/opt/mssql/backup/portal_usebeq.bak'"
 ```
 
 ---
 
-## Costos Estimados (Azure)
+## Costos Estimados (Azure SQL Database)
 
 | Tier | Costo Aproximado | Recursos |
 |------|------------------|----------|
-| Burstable B1ms | ~$12/mes | 1 vCore, 2GB RAM, 20GB storage |
-| Burstable B2s | ~$25/mes | 2 vCores, 4GB RAM, 32GB storage |
-| General Purpose | ~$50+/mes | Más recursos, alta disponibilidad |
+| Serverless (General Purpose) | ~$5-15/mes (pausa cuando no hay uso) | Hasta 2 vCores, auto-pausa |
+| Basic | ~$5/mes | 5 DTUs, 2GB storage |
+| Standard S0 | ~$15/mes | 10 DTUs, 250GB storage |
 
 **Nota:** Los precios pueden variar. Consultar [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/).

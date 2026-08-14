@@ -319,9 +319,8 @@ async def get_token_status(
         from datetime import datetime, timedelta
 
         query = text("""
-            SELECT token, fecha_registro FROM pp_token
+            SELECT TOP 1 token, fecha_registro FROM pp_token
             ORDER BY fecha_registro DESC
-            LIMIT 1
         """)
         result = api_service.db.execute(query).fetchone()
 
@@ -381,9 +380,8 @@ async def get_scheduler_status(
 
         # Get current token age
         query = text("""
-            SELECT fecha_registro FROM pp_token
+            SELECT TOP 1 fecha_registro FROM pp_token
             ORDER BY fecha_registro DESC
-            LIMIT 1
         """)
         result = db.execute(query).fetchone()
 
@@ -452,9 +450,8 @@ async def force_token_refresh(
 
         # Get the new token to confirm
         query = text("""
-            SELECT token, fecha_registro FROM pp_token
+            SELECT TOP 1 token, fecha_registro FROM pp_token
             ORDER BY fecha_registro DESC
-            LIMIT 1
         """)
         result = db.execute(query).fetchone()
 

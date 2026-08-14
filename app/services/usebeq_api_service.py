@@ -28,10 +28,9 @@ class USEBEQAPIService:
         """
         # Get the most recent token
         query = text("""
-            SELECT id, token, refresh_token, fecha_registro
+            SELECT TOP 1 id, token, refresh_token, fecha_registro
             FROM pp_token
             ORDER BY fecha_registro DESC
-            LIMIT 1
         """)
         result = self.db.execute(query).fetchone()
 
